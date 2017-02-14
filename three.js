@@ -11730,7 +11730,7 @@
 		this.normalized = normalized === true;
 
 		this.dynamic = false;
-		this.updateRange = { offset: 0, count: - 1 };
+		this.updateRanges = undefined;
 
 		this.onUploadCallback = function () {};
 
@@ -17544,22 +17544,24 @@
 
 				gl.bufferData( bufferType, data.array, gl.STATIC_DRAW );
 
-			} else if ( data.updateRange.count === - 1 ) {
+			} else if ( data.updateRanges === undefined ) {
 
 				// Not using update ranges
 
 				gl.bufferSubData( bufferType, 0, data.array );
 
-			} else if ( data.updateRange.count === 0 ) {
+			} else if ( data.updateRanges.length === 0 ) {
 
 				console.error( 'THREE.WebGLObjects.updateBuffer: dynamic THREE.BufferAttribute marked as needsUpdate but updateRange.count is 0, ensure you are using set methods or updating manually.' );
 
 			} else {
 
-				gl.bufferSubData( bufferType, data.updateRange.offset * data.array.BYTES_PER_ELEMENT,
-								  data.array.subarray( data.updateRange.offset, data.updateRange.offset + data.updateRange.count ) );
+				for (var i = 0; i < data.updateRanges.length; i += 1) {
+					gl.bufferSubData( bufferType, data.updateRanges[i].offset * data.array.BYTES_PER_ELEMENT,
+									  data.array.subarray( data.updateRanges[i].offset, data.updateRanges[i].offset + data.updateRanges[i].count ) );
+				}
 
-				data.updateRange.count = 0; // reset range
+				data.updateRanges = []; // reset ranges
 
 			}
 
@@ -39059,7 +39061,7 @@
 		this.count = array !== undefined ? array.length / stride : 0;
 
 		this.dynamic = false;
-		this.updateRange = { offset: 0, count: - 1 };
+		this.updateRanges = undefined;
 
 		this.onUploadCallback = function () {};
 

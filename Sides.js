@@ -12,10 +12,15 @@ Sides.NORTH.tangents  = [ Sides.EAST,  Sides.TOP,  Sides.WEST,  Sides.BOTTOM, ]
 Sides.SOUTH.tangents  = [ Sides.WEST,  Sides.TOP,  Sides.EAST,  Sides.BOTTOM, ]
 Sides.EAST.tangents   = [ Sides.SOUTH, Sides.TOP,  Sides.NORTH, Sides.BOTTOM, ]
 Sides.WEST.tangents   = [ Sides.NORTH, Sides.TOP,  Sides.SOUTH, Sides.BOTTOM, ]
-Sides.TOP.mirror    = Sides.BOTTOM
-Sides.BOTTOM.mirror = Sides.TOP
-Sides.NORTH.mirror  = Sides.SOUTH
-Sides.SOUTH.mirror  = Sides.NORTH
-Sides.EAST.mirror   = Sides.WEST
-Sides.WEST.mirror   = Sides.EAST
+Sides.TOP.opposite    = Sides.BOTTOM
+Sides.BOTTOM.opposite = Sides.TOP
+Sides.NORTH.opposite  = Sides.SOUTH
+Sides.SOUTH.opposite  = Sides.NORTH
+Sides.EAST.opposite   = Sides.WEST
+Sides.WEST.opposite   = Sides.EAST
 var SidesById = [ Sides.TOP, Sides.BOTTOM, Sides.NORTH, Sides.SOUTH, Sides.EAST, Sides.WEST ]
+Sides.each = callback => {
+	for (var sideId = 0; sideId < 6; sideId += 1) {
+		callback(SidesById[sideId])
+	}
+}

@@ -17,7 +17,7 @@ var World = {
 			var neighbour = this.chunks[ this.getChunkId(cx + side.dx, cy + side.dy, cz + side.dz) ]
 			if (neighbour) {
 				chunk.addChunkNeighbour(side, neighbour)
-				neighbour.addChunkNeighbour(side.mirror, chunk)
+				neighbour.addChunkNeighbour(side.opposite, chunk)
 			}
 		}
 	},
