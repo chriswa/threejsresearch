@@ -12,6 +12,9 @@ class BlockPos {
 		this.z = z
 		this.i = z + y * Chunk.sizeZ + x * Chunk.sizeZ * Chunk.sizeY
 	}
+    isLoaded() {
+        return true
+    }
 	getBlockData() {
 		return this.chunk.blockData[this.i]
 	}
@@ -54,8 +57,9 @@ class BlockPos {
 	}
 }
 BlockPos.badPos = {
+    isLoaded() { return false },
 	getBlockData() { return undefined },
-	setBlockData(newBlockData) { return undefined },
+	setBlockData(newBlockData) { throw new Error("setBlockData on badPos") },
 	getAdjacentBlockPos(side) { return BlockPos.badPos },
 }
 
@@ -66,6 +70,7 @@ class Chunk {
 		this.cx = cx
 		this.cy = cy
 		this.cz = cz
+		this.id = [cx, cy, cz].join(',')
 
 		this.quadIdsByBlockAndSide = new Uint16Array(Chunk.sizeX * Chunk.sizeY * Chunk.sizeZ * facesPerCube)
 
@@ -105,20 +110,21 @@ class Chunk {
 		this.blockData[ blockPos.i ] = newBlockData
 
 		// note: remove quads first, then draw new quads, to take advantage of quadDirtyList
-
 		if (oldBlockData !== 1 && newBlockData === 1) {
 			// block added
 			//   for any neighbouring solid blocks, we want to remove their previously exposed face
 			//   for any neighbouring air blocks, we want to draw this block's face
 			//   also update ambient occlusion?
 			Sides.each(side => {
-				if (blockPos.getAdjacentBlockPos(side).getBlockData() === 1) {
-					this.eraseFace(blockPos.getAdjacentBlockPos(side), side.opposite)
+				var adjacentPos = blockPos.getAdjacentBlockPos(side)
+				if (adjacentPos.getBlockData() === 1) {
+					adjacentPos.chunk.eraseFace(adjacentPos, side.opposite)
 				}
 			})
 			Sides.each(side => {
-				if (blockPos.getAdjacentBlockPos(side).getBlockData() !== 1) {
-					this.drawFace(blockPos, side, 2)
+				var adjacentPos = blockPos.getAdjacentBlockPos(side)
+				if (adjacentPos.getBlockData() !== 1) {
+					this.drawFace(blockPos, side, 1)
 				}
 			})
 
@@ -130,18 +136,18 @@ class Chunk {
 			//   for any neighbouring solid blocks, we want to draw their exposed face
 			//   also update ambient occlusion?
 			Sides.each(side => {
-				if (blockPos.getAdjacentBlockPos(side).getBlockData() !== 1) {
+				var adjacentPos = blockPos.getAdjacentBlockPos(side)
+				if (adjacentPos.getBlockData() !== 1) {
 					this.eraseFace(blockPos, side)
 				}
 			})
 			Sides.each(side => {
-				if (blockPos.getAdjacentBlockPos(side).getBlockData() === 1) {
-					this.drawFace(blockPos.getAdjacentBlockPos(side), side.opposite, 2)
+				var adjacentPos = blockPos.getAdjacentBlockPos(side)
+				if (adjacentPos.getBlockData() === 1) {
+					adjacentPos.chunk.drawFace(adjacentPos, side.opposite, 1)
 				}
 			})
 		}
-
-		this.cleanup()
 	}
 	drawAllQuads() {
 
@@ -210,6 +216,8 @@ class Chunk {
 		var quadId = this.addQuad(blockPos.x, blockPos.y, blockPos.z, side, tu, tv, brightnesses)
 		//if (temp === 2) { console.log(`drawFace quadId = ${quadId}`) }
 		this.quadIdsByBlockAndSide[blockPos.i * 6 + side.id] = quadId
+		
+		World.markChunkAsDirty(this)
 	}
 	eraseFace(blockPos, side) {
 		var quadId = this.quadIdsByBlockAndSide[ blockPos.i * 6 + side.id ]
@@ -217,6 +225,8 @@ class Chunk {
 		//console.log(`eraseFace quadId = ${quadId}`)
 		this.removeQuad(quadId)
 		this.quadIdsByBlockAndSide[ blockPos.i * 6 + side.id ] = undefined // necessary?
+		
+		World.markChunkAsDirty(this)
 	}
 	addQuad(x, y, z, side, tu, tv, brightnesses, temp) {
 
@@ -235,14 +245,14 @@ class Chunk {
 		else if (this.quadHoleList.length) {
 			quadId = this.quadHoleList.shift()
 		}
-		// finally, append quads to the end and increase the draw range
+		// if there are no dirty quads or holes to fill, append quads to the end and increase the draw range
 		else {
 			quadId = this.quadCount
 			this.quadCount += 1
-			this.geometry.setDrawRange(0, 6 * this.quadCount)
+			this.geometry.setDrawRange(0, this.quadCount * indicesPerFace)
 		}
-		var cursor = quadId * 8 * 4
-		this.interleavedUpdates.push({ offset: cursor, count: 8 * 4 })
+		var cursor = quadId * 8 * uniqVertsPerFace
+		this.interleavedUpdates.push({ offset: cursor, count: 8 * uniqVertsPerFace })
 
 		var u0 = tu/16
 		var u1 = (tu+1)/16
@@ -267,8 +277,8 @@ class Chunk {
 	}
 	cleanup() {
 		_.each(this.quadDirtyList, quadId => {
-			var cursor = quadId * 8 * 4
-			this.interleavedUpdates.push({ offset: cursor, count: 8 * 4 })
+			var cursor = quadId * 8 * uniqVertsPerFace
+			this.interleavedUpdates.push({ offset: cursor, count: 8 * uniqVertsPerFace })
 			for (var i = 0; i < uniqVertsPerFace; i += 1) {
 				for (var j = 0; j < 8; j += 1) {
 					this.interleavedData[ cursor++ ] = 0 // OPTIMIZE: probably only need to set the positions to 0, not UVs or colours
@@ -279,7 +289,8 @@ class Chunk {
 		this.quadDirtyList = []
 		//console.log(`this.interleavedUpdates = ${JSON.stringify(this.interleavedUpdates)}`)
 
-		this.interleavedBuffer.updateRange = this.interleavedUpdates // { offset: 0, count: this.quadCount * 6 * 8 }
+		//this.interleavedBuffer.updateRange = this.interleavedUpdates // { offset: 0, count: this.quadCount * 6 * 8 }
+		this.interleavedBuffer.updateRange = [{ offset: 0, count: this.quadCount * 6 * 8 }]
 		this.interleavedBuffer.needsUpdate = true
 		this.interleavedUpdates = []
 
@@ -300,3 +311,7 @@ for (var quadIndex = 0, indexIndex = 0, vertIndex = 0; quadIndex < maxQuadsPerMe
 	indexArray[indexIndex + 5] = vertIndex + 3
 }
 Chunk.sharedQuadIndexBufferAttribute = new THREE.BufferAttribute( indexArray, 1 )
+
+
+
+

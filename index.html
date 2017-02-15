@@ -9,6 +9,7 @@
 		</style>
 	</head>
 	<body>
+        <script src="perlin.js"></script>
 		<script src="three.js"></script>
 		<script src="FirstPersonControls.js"></script>
 		<script src="PlayerControls.js"></script>
@@ -73,12 +74,14 @@
 							blockPos.setBlockData( blockPos.getBlockData() === 1 ? 0 : 1 )
 						}
 
-						PlayerControls.update(dt);
+						PlayerControls.update(dt)
+						
+						World.cleanAllDirtyChunks()
 
-						renderer.render(scene, camera);
+						renderer.render(scene, camera)
 					};
 
-					requestAnimationFrame( render );
+					requestAnimationFrame( render )
 				}
 			})
 		</script>

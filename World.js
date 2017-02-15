@@ -10,7 +10,7 @@ var World = {
 		chunk.mesh.position.z = cz * Chunk.sizeZ
 		scene.add( chunk.mesh );
 
-		this.chunks[ this.getChunkId(cx, cy, cz) ] = chunk
+		this.chunks[ chunk.id ] = chunk
 
 		for (var sideId = 0; sideId < 6; sideId += 1) {
 			var side = SidesById[sideId]
@@ -21,7 +21,16 @@ var World = {
 			}
 		}
 	},
+	dirtyChunks: {},
+	markChunkAsDirty(chunk) {
+		this.dirtyChunks[chunk.id] = chunk
+	},
+	cleanAllDirtyChunks() {
+		_.each(this.dirtyChunks, chunk => chunk.cleanup())
+		this.dirtyChunks = {}
+	},
 	build() {
+		noise.seed(0)
 		for (var cx = -5; cx <= 5; cx += 1) {
 			for (var cy = -5; cy <= 5; cy += 1) {
 				for (var cz = -5; cz <= 5; cz += 1) {
@@ -36,7 +45,12 @@ var World = {
 								var isDirt = 1
 								if (sampleY >= 3) { isDirt = 0; }
 
-								if (sampleY === 3) { isDirt = Math.random() < 0.25 ? 1 : 0; }
+								if (sampleY === 3) {
+									//isDirt = Math.random() < 0.25 ? 1 : 0;
+									isDirt = noise.simplex2(x, z) > 0.5
+
+								}
+                                
 								blockData[i] = isDirt ? 1 : 0; // dirt, air
 							}
 						}
