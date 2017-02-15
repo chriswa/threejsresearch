@@ -4,7 +4,7 @@
   "description": "",
   "main": "three.js",
   "scripts": {
-    "start": "node_modules\\.bin\\http-server . -p 8000"
+    "start": "node_modules\\.bin\\http-server . -p 9999"
   },
   "author": "",
   "license": "ISC",
