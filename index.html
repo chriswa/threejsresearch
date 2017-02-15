@@ -11,6 +11,7 @@
 	<body>
 		<script src="three.js"></script>
 		<script src="FirstPersonControls.js"></script>
+		<script src="PlayerControls.js"></script>
 		<script src="lodash.core.js"></script>
 		<script src="Chunk.js"></script>
 		<script src="Sides.js"></script>
@@ -20,6 +21,7 @@
 			var loader = new THREE.TextureLoader();
 			
 			var renderer = new THREE.WebGLRenderer();
+			renderer.setPixelRatio( window.devicePixelRatio )
 			renderer.setSize( window.innerWidth, window.innerHeight );
 			document.body.appendChild( renderer.domElement );
 
@@ -49,11 +51,9 @@
 					var clock = new THREE.Clock()
 					var elapsedTime = 0
 
-					controls = new THREE.FirstPersonControls( camera );
-          controls.movementSpeed = 10;
-          controls.lookSpeed     = 0.5;
-          controls.noFly         = false;
-          controls.lookVertical  = true;
+					PlayerControls.init(camera)
+
+
 
 					var render = function () {
 						requestAnimationFrame( render );
@@ -63,6 +63,7 @@
 
 						if (elapsedTime > 0.1) {
 							elapsedTime -= 0.1
+							//debugger;
 							var x = Math.floor(Math.random() * Chunk.sizeX)
 							var y = 3 // Math.floor(Math.random() * Chunk.sizeY)
 							var z = Math.floor(Math.random() * Chunk.sizeZ)
@@ -72,7 +73,7 @@
 							blockPos.setBlockData( blockPos.getBlockData() === 1 ? 0 : 1 )
 						}
 
-						controls.update(dt);
+						PlayerControls.update(dt);
 
 						renderer.render(scene, camera);
 					};

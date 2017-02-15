@@ -122,17 +122,22 @@ THREE.FirstPersonControls = function ( object, domElement ) {
 
 	this.onMouseMove = function ( event ) {
 
-		if ( this.domElement === document ) {
+		//if (!this.enabled) { return }
+		//
+		//this.mouseX = event.movementX || event.mozMovementX || event.webkitMovementX || 0;
+		//this.mouseY = event.movementY || event.mozMovementY || event.webkitMovementY || 0;
 
-			this.mouseX = event.pageX - this.viewHalfX;
-			this.mouseY = event.pageY - this.viewHalfY;
-
-		} else {
-
-			this.mouseX = event.pageX - this.domElement.offsetLeft - this.viewHalfX;
-			this.mouseY = event.pageY - this.domElement.offsetTop - this.viewHalfY;
-
-		}
+		//if ( this.domElement === document ) {
+		//	
+		//	this.mouseX = event.pageX - this.viewHalfX;
+		//	this.mouseY = event.pageY - this.viewHalfY;
+		//	
+		//} else {
+		//	
+		//	this.mouseX = event.pageX - this.domElement.offsetLeft - this.viewHalfX;
+		//	this.mouseY = event.pageY - this.domElement.offsetTop - this.viewHalfY;
+		//	
+		//}
 
 	};
 

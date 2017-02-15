@@ -25,9 +25,9 @@ THREE.PointerLockControls = function ( camera ) {
 		var movementY = event.movementY || event.mozMovementY || event.webkitMovementY || 0;
 
 		yawObject.rotation.y -= movementX * 0.002;
-		pitchObject.rotation.x -= movementY * 0.002;
+		pitchObject.rotation.z -= movementY * 0.002;
 
-		pitchObject.rotation.x = Math.max( - PI_2, Math.min( PI_2, pitchObject.rotation.x ) );
+		pitchObject.rotation.z = Math.max( - PI_2, Math.min( PI_2, pitchObject.rotation.z ) );
 
 	};
 

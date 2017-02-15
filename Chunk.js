@@ -78,7 +78,6 @@ class Chunk {
 		this.geometry.addAttribute( 'uv',       new THREE.InterleavedBufferAttribute( this.interleavedBuffer, 2, 3 ) );
 		this.geometry.addAttribute( 'color',    new THREE.InterleavedBufferAttribute( this.interleavedBuffer, 3, 5 ) );
 		this.geometry.setIndex( Chunk.sharedQuadIndexBufferAttribute );
-		this.geometry.setDrawRange(0, indicesPerFace * this.quadCount)
 		this.material = new THREE.MeshBasicMaterial( { map: mainTexture, vertexColors: THREE.VertexColors } );
 		this.mesh     = new THREE.Mesh( this.geometry, this.material );
 	}
@@ -146,25 +145,24 @@ class Chunk {
 	}
 	drawAllQuads() {
 
-		this.quadCount = 0
+		this.quadCount = 1
 		this.quadHoleList = []
 		this.quadDirtyList = []
 		this.interleavedUpdates = { push: () => {} } // ignore individual quad updates, since we will be writing the entire buffer
 		this.eachPos(blockPos => {
 
-			// if this block is invisible, skip it
-			if (blockPos.getBlockData() !== 0) { return }
+			if (blockPos.getBlockData() === 1) {
 
-			Sides.each(side => {
-				
-				// if adjacent block is opaque, don't bother drawing a quad
-				var adjacentPos = blockPos.getAdjacentBlockPos(side)
-				var adjacentBlockData = adjacentPos.getBlockData()
-				if (adjacentBlockData === 1) {
-					this.drawFace(blockPos, side, 1)
-				}
-				
-			})
+				Sides.each(side => {
+					
+					var adjacentPos = blockPos.getAdjacentBlockPos(side)
+					var adjacentBlockData = adjacentPos.getBlockData()
+					if (adjacentBlockData !== 1) {
+						this.drawFace(blockPos, side, 1)
+					}
+					
+				})
+			}
 		})
 		this.interleavedUpdates = []
 		//this.interleavedBuffer.updateRange = { offset: 0, count: this.quadCount * 6 * 8 }
@@ -180,11 +178,13 @@ class Chunk {
 		var brightnesses = [1, 1, 1, 1]
 		var occludedBrightness = 0.6
 
+		var adjacentPos = blockPos.getAdjacentBlockPos(side)
+
 		// check for occlusion at right angles to the block's normal
 		for (var tangentIndex = 0; tangentIndex < 4; tangentIndex += 1) {
-			var tangentSide = side.opposite.tangents[tangentIndex]    // XXX: why do i have to opposite tangents?!
+			var tangentSide = side.tangents[tangentIndex]
 			
-			var tangentPos = blockPos.getAdjacentBlockPos(tangentSide)
+			var tangentPos = adjacentPos.getAdjacentBlockPos(tangentSide)
 			if (!tangentPos) { continue }
 			var tangentBlockData = tangentPos.getBlockData()
 
@@ -196,7 +196,7 @@ class Chunk {
 
 			// diagonal ambient occlusion
 			
-			var diagonalTangentSide = side.opposite.tangents[(tangentIndex + 1) % 4]
+			var diagonalTangentSide = side.tangents[(tangentIndex + 1) % 4]
 
 			var tangentDiagonalPos = tangentPos.getAdjacentBlockPos(diagonalTangentSide)
 			if (!tangentDiagonalPos) { continue }
@@ -207,17 +207,18 @@ class Chunk {
 			}
 		}
 
-		var quadId = this.addQuad(blockPos.x + side.dx, blockPos.y + side.dy, blockPos.z + side.dz, side.opposite, tu, tv, brightnesses)
-        console.log(`drawFace quadId = ${quadId}`)
+		var quadId = this.addQuad(blockPos.x, blockPos.y, blockPos.z, side, tu, tv, brightnesses)
+		//if (temp === 2) { console.log(`drawFace quadId = ${quadId}`) }
 		this.quadIdsByBlockAndSide[blockPos.i * 6 + side.id] = quadId
 	}
 	eraseFace(blockPos, side) {
-        var quadId = this.quadIdsByBlockAndSide[ blockPos.i * 6 + side.id ]
-        console.log(`eraseFace quadId = ${quadId}`)
+		var quadId = this.quadIdsByBlockAndSide[ blockPos.i * 6 + side.id ]
+		if (quadId === 0) { debugger; }
+		//console.log(`eraseFace quadId = ${quadId}`)
 		this.removeQuad(quadId)
 		this.quadIdsByBlockAndSide[ blockPos.i * 6 + side.id ] = undefined // necessary?
 	}
-	addQuad(x, y, z, side, tu, tv, brightnesses) {
+	addQuad(x, y, z, side, tu, tv, brightnesses, temp) {
 
 		var flipQuad = false
 		if (brightnesses[0] + brightnesses[2] < brightnesses[1] + brightnesses[3]) {
@@ -226,19 +227,19 @@ class Chunk {
 		var vertexOrder = flipQuad ? [ 1, 2, 3, 0 ] : [ 0, 1, 2, 3 ]
 
 		var quadId
-        // prefer to draw over dirty quads, which will need to be updated anyway
+		// prefer to draw over dirty quads, which will need to be updated anyway
 		if (this.quadDirtyList.length) {
 			quadId = this.quadDirtyList.shift()
 		}
-        // second preference is to fill up holes left by previously cleaned up quads, to avoid expanding our draw range and ultimately running out of space
-		if (this.quadHoleList.length) {
+		// second preference is to fill up holes left by previously cleaned up quads, to avoid expanding our draw range and ultimately running out of space
+		else if (this.quadHoleList.length) {
 			quadId = this.quadHoleList.shift()
 		}
-        // finally, append quads to the end and increase the draw range
+		// finally, append quads to the end and increase the draw range
 		else {
 			quadId = this.quadCount
 			this.quadCount += 1
-            this.geometry.setDrawRange(0, 6 * this.quadCount)
+			this.geometry.setDrawRange(0, 6 * this.quadCount)
 		}
 		var cursor = quadId * 8 * 4
 		this.interleavedUpdates.push({ offset: cursor, count: 8 * 4 })
@@ -265,7 +266,6 @@ class Chunk {
 		this.quadDirtyList.push(quadId) // leave it in the interleavedData for now, in case another quad needs to be drawn this frame!
 	}
 	cleanup() {
-		if (this.quadDirtyList.length === 0) { return }
 		_.each(this.quadDirtyList, quadId => {
 			var cursor = quadId * 8 * 4
 			this.interleavedUpdates.push({ offset: cursor, count: 8 * 4 })
@@ -277,13 +277,11 @@ class Chunk {
 			this.quadHoleList.push(quadId)
 		})
 		this.quadDirtyList = []
-        
-        console.log(`this.interleavedUpdates = ${this.interleavedUpdates}`)
+		//console.log(`this.interleavedUpdates = ${JSON.stringify(this.interleavedUpdates)}`)
 
 		this.interleavedBuffer.updateRange = this.interleavedUpdates // { offset: 0, count: this.quadCount * 6 * 8 }
 		this.interleavedBuffer.needsUpdate = true
-        
-        this.interleavedUpdates = []
+		this.interleavedUpdates = []
 
 	}
 }
