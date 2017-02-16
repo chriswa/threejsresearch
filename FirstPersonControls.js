@@ -123,7 +123,7 @@ THREE.FirstPersonControls = function ( object, domElement ) {
 	this.onMouseMove = function ( event ) {
 
 		//if (!this.enabled) { return }
-		//
+		//	
 		//this.mouseX = event.movementX || event.mozMovementX || event.webkitMovementX || 0;
 		//this.mouseY = event.movementY || event.mozMovementY || event.webkitMovementY || 0;
 

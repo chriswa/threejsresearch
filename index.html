@@ -7,7 +7,7 @@
 			html, body { margin: 0; overflow: hidden; }
 			canvas { width: 100%; height: 100% }
 			#coords { position: absolute; top: 0; right: 0; color: white; background-color: black; text-align: right; padding: 2px; }
-			#crosshair { width: 10px; height: 20px; position: absolute; top: 50%; left: 50%; margins: -10px 0 0 -5px; color: white; }
+			#crosshair { width: 10px; height: 20px; position: absolute; top: 50%; left: 50%; margin: -10px 0 0 -5px; color: white; text-align: center; }
 		</style>
 	</head>
 	<body>
@@ -92,12 +92,6 @@
 					var elapsedTime = 0
 
 					PlayerControls.init(camera)
-
-					var crosshairGeometry = new THREE.BufferGeometry()
-					crosshairGeometry.addAttribute( 'position', new THREE.BufferAttribute( new Float32Array([ -0.01,0,-1, 0.01,0,-1, 0,0,-1, 0,-0.01,-1, 0,0.01,-1 ]), 3 ) )
-					var crosshair = new THREE.Line( crosshairGeometry, new THREE.LineBasicMaterial( { color: 0xffffff, linewidth: 1, transparent: true } ) )
-					scene.add( crosshair )
-					crosshair.parent = camera
 
 					var blockOutlineVerts = []
 					Sides.each(side => {

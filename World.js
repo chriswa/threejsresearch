@@ -1,12 +1,15 @@
 var World = {
 	chunks: {},
 	getBlockPosFromWorldPoint(p) {
-		var cx = Math.floor(p.x / Chunk.sizeX)
-		var cy = Math.floor(p.y / Chunk.sizeY)
-		var cz = Math.floor(p.z / Chunk.sizeZ)
+		var ix = Math.floor(p.x)
+		var iy = Math.ceil(p.y)
+		var iz = Math.floor(p.z)
+		var cx = Math.floor(ix / Chunk.sizeX)
+		var cy = Math.floor(iy / Chunk.sizeY)
+		var cz = Math.floor(iz / Chunk.sizeZ)
 		var chunk = this.chunks[ this.getChunkId(cx, cy, cz) ]
 		if (!chunk) { return BlockPos.badPos }
-		return chunk.getBlockPos(Math.floor(p.x - cx * Chunk.sizeX), Math.floor(p.y - cy * Chunk.sizeY), Math.floor(p.z - cz * Chunk.sizeZ))
+		return chunk.getBlockPos(ix - cx * Chunk.sizeX, iy - cy * Chunk.sizeY, iz - cz * Chunk.sizeZ)
 	},
 	getChunkId(cx, cy, cz) {
 		return cx + ',' + cy + ',' + cz
@@ -72,7 +75,7 @@ var World = {
 		}
 		_.each(World.chunks, chunk => chunk.drawAllQuads() )
 	},
-	raycast(ray, max_d) { // ray.direction must be normalized
+	raycast(ray, max_d) { // ray.direction must be normalized // https://github.com/andyhall/fast-voxel-raycast/
 		var origin = ray.origin
 		var direction = ray.direction // normalized
 
@@ -133,7 +136,7 @@ var World = {
 				else if (steppedIndex === 1) {
 					side = (stepy > 0) ? Sides.BOTTOM : Sides.TOP
 				}
-				else {
+				else { // if the camera is inside a block, this else will cause the side to be only either north or south!
 					side = (stepz > 0) ? Sides.SOUTH : Sides.NORTH
 				}
 				return { blockPos: blockPos, dist: t, side: side }
