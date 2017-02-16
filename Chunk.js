@@ -10,11 +10,15 @@ class BlockPos {
 		this.x = x
 		this.y = y
 		this.z = z
-		this.i = z + y * Chunk.sizeZ + x * Chunk.sizeZ * Chunk.sizeY
+		this.recalculateIndex()
+		this.isLoaded = true
 	}
-    isLoaded() {
-        return true
-    }
+	recalculateIndex() {
+		this.i = this.z + this.y * Chunk.sizeZ + this.x * Chunk.sizeZ * Chunk.sizeY
+	}
+	getWorldPoint() {
+		return new THREE.Vector3( this.chunk.cx * Chunk.sizeX + this.x, this.chunk.cy * Chunk.sizeY + this.y, this.chunk.cz * Chunk.sizeZ + this.z )
+	}
 	getBlockData() {
 		return this.chunk.blockData[this.i]
 	}
@@ -55,9 +59,24 @@ class BlockPos {
 		}
 		return new BlockPos(this.chunk, this.x + side.dx, this.y + side.dy, this.z + side.dz)
 	}
+	add(dx, dy, dz) {
+		if (dy > 0) { this.y += dy; while (this.y > Chunk.sizeY-1) { this.chunk = this.chunk.neighboursBySideId[ Sides.TOP.id    ]; this.y -= Chunk.sizeY; if (!this.chunk) { this.corrupt() ; return } } }
+		if (dy < 0) { this.y += dy; while (this.y < 0)             { this.chunk = this.chunk.neighboursBySideId[ Sides.BOTTOM.id ]; this.y += Chunk.sizeY; if (!this.chunk) { this.corrupt() ; return } } }
+		if (dz > 0) { this.z += dz; while (this.z > Chunk.sizeZ-1) { this.chunk = this.chunk.neighboursBySideId[ Sides.NORTH.id  ]; this.z -= Chunk.sizeZ; if (!this.chunk) { this.corrupt() ; return } } }
+		if (dz < 0) { this.z += dz; while (this.z < 0)             { this.chunk = this.chunk.neighboursBySideId[ Sides.SOUTH.id  ]; this.z += Chunk.sizeZ; if (!this.chunk) { this.corrupt() ; return } } }
+		if (dx > 0) { this.x += dx; while (this.x > Chunk.sizeX-1) { this.chunk = this.chunk.neighboursBySideId[ Sides.EAST.id   ]; this.x -= Chunk.sizeX; if (!this.chunk) { this.corrupt() ; return } } }
+		if (dx < 0) { this.x += dx; while (this.x < 0)             { this.chunk = this.chunk.neighboursBySideId[ Sides.WEST.id   ]; this.x += Chunk.sizeX; if (!this.chunk) { this.corrupt() ; return } } }
+		this.recalculateIndex()
+	}
+	corrupt() {
+		this.isLoaded = false
+	}
+	toString() {
+		return `BlockPos(${this.x},${this.y},${this.z} @ ${this.chunk})`
+	}
 }
 BlockPos.badPos = {
-    isLoaded() { return false },
+	isLoaded: false,
 	getBlockData() { return undefined },
 	setBlockData(newBlockData) { throw new Error("setBlockData on badPos") },
 	getAdjacentBlockPos(side) { return BlockPos.badPos },
@@ -83,8 +102,9 @@ class Chunk {
 		this.geometry.addAttribute( 'uv',       new THREE.InterleavedBufferAttribute( this.interleavedBuffer, 2, 3 ) );
 		this.geometry.addAttribute( 'color',    new THREE.InterleavedBufferAttribute( this.interleavedBuffer, 3, 5 ) );
 		this.geometry.setIndex( Chunk.sharedQuadIndexBufferAttribute );
-		this.material = new THREE.MeshBasicMaterial( { map: mainTexture, vertexColors: THREE.VertexColors } );
+		this.material = new THREE.MeshBasicMaterial( { map: mainTexture, vertexColors: THREE.VertexColors, wireframe: false } );
 		this.mesh     = new THREE.Mesh( this.geometry, this.material );
+		this.mesh.chunk = this
 	}
 	eachPos(callback) {
 		var blockPos = new BlockPos(this, 0, 0, 0)
@@ -163,7 +183,7 @@ class Chunk {
 					
 					var adjacentPos = blockPos.getAdjacentBlockPos(side)
 					var adjacentBlockData = adjacentPos.getBlockData()
-					if (adjacentBlockData !== 1) {
+					if (adjacentBlockData !== undefined && adjacentBlockData !== 1) {
 						this.drawFace(blockPos, side, 1)
 					}
 					
@@ -294,6 +314,9 @@ class Chunk {
 		this.interleavedBuffer.needsUpdate = true
 		this.interleavedUpdates = []
 
+	}
+	toString() {
+		return `Chunk(${this.id})`
 	}
 }
 

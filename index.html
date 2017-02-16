@@ -6,18 +6,37 @@
 		<style>
 			html, body { margin: 0; overflow: hidden; }
 			canvas { width: 100%; height: 100% }
+			#coords { position: absolute; top: 0; right: 0; color: white; background-color: black; text-align: right; padding: 2px; }
+			#crosshair { width: 10px; height: 20px; position: absolute; top: 50%; left: 50%; margins: -10px 0 0 -5px; color: white; }
 		</style>
 	</head>
 	<body>
-        <script src="perlin.js"></script>
+		<div id="coords"></div>
+		<div id="crosshair">+</div>
+		<script src="stats.js"></script>
+		<script src="perlin.js"></script>
 		<script src="three.js"></script>
 		<script src="FirstPersonControls.js"></script>
 		<script src="PlayerControls.js"></script>
-		<script src="lodash.core.js"></script>
+		<script src="lodash.js"></script>
 		<script src="Chunk.js"></script>
 		<script src="Sides.js"></script>
 		<script src="World.js"></script>
 		<script>
+			var stats = {}
+			stats.elapsed = new Stats()
+			stats.elapsed.showPanel(1)
+			stats.elapsed.domElement.style.position = 'absolute'
+			stats.elapsed.domElement.style.top = '5px'
+			document.body.appendChild( stats.elapsed.domElement )
+			stats.fps = new Stats()
+			stats.fps.showPanel(0)
+			stats.fps.domElement.style.position = 'absolute'
+			stats.fps.domElement.style.top = '5px'
+			stats.fps.domElement.style.left = '80px'
+			document.body.appendChild( stats.fps.domElement )
+
+
 			var mainTexture
 			var loader = new THREE.TextureLoader();
 			
@@ -38,6 +57,24 @@
 				renderer.setSize( window.innerWidth, window.innerHeight );
 			}, false );
 
+			//var cube1 = new THREE.Mesh( new THREE.BoxGeometry( 1.1, 1.1, 1.1 ), new THREE.MeshBasicMaterial( {color: 0x0099cc} ) );
+			//scene.add( cube1 );
+			//var cube2 = new THREE.Mesh( new THREE.BoxGeometry( 0.2, 0.2, 0.2 ), new THREE.MeshBasicMaterial( {color: 0x99cc00} ) );
+			//scene.add( cube2 );
+
+			var voxelRaycast
+			camera.addEventListener('click', event => {
+
+				if (!voxelRaycast) { return }
+
+				if (event.button === 0) {
+					voxelRaycast.blockPos.setBlockData(0)
+				}
+				else {
+					voxelRaycast.blockPos.getAdjacentBlockPos(voxelRaycast.side).setBlockData(1)
+				}
+			})
+
 			loader.load('minecraft15.png', texture => { // e.g. loading multiple textures with promise.all: http://stackoverflow.com/questions/7919516/using-textures-in-three-js
 				texture.minFilter = THREE.NearestFilter;
 				texture.magFilter = THREE.NearestFilter;
@@ -49,36 +86,75 @@
 
 				function start() {
 
+					var raycaster = new THREE.Raycaster()
+
 					var clock = new THREE.Clock()
 					var elapsedTime = 0
 
 					PlayerControls.init(camera)
 
+					var crosshairGeometry = new THREE.BufferGeometry()
+					crosshairGeometry.addAttribute( 'position', new THREE.BufferAttribute( new Float32Array([ -0.01,0,-1, 0.01,0,-1, 0,0,-1, 0,-0.01,-1, 0,0.01,-1 ]), 3 ) )
+					var crosshair = new THREE.Line( crosshairGeometry, new THREE.LineBasicMaterial( { color: 0xffffff, linewidth: 1, transparent: true } ) )
+					scene.add( crosshair )
+					crosshair.parent = camera
+
+					var blockOutlineVerts = []
+					Sides.each(side => {
+						blockOutlineVerts = blockOutlineVerts.concat(side.verts).concat(side.verts.slice(0, 3))
+					})
+					var blockOutlineGeometry = new THREE.BufferGeometry()
+					blockOutlineGeometry.addAttribute( 'position', new THREE.BufferAttribute( new Float32Array(blockOutlineVerts), 3 ) )
+					var blockOutlineMaterial = new THREE.LineBasicMaterial( { color: 0xffffff, linewidth: 1, transparent: true } )
+					blockOutline = new THREE.Line( blockOutlineGeometry, blockOutlineMaterial )
+					scene.add( blockOutline )
+
 
 
 					var render = function () {
-						requestAnimationFrame( render );
-
+						stats.elapsed.begin()
 						var dt = clock.getDelta()
 						elapsedTime += dt
 
-						if (elapsedTime > 0.1) {
-							elapsedTime -= 0.1
-							//debugger;
-							var x = Math.floor(Math.random() * Chunk.sizeX)
-							var y = 3 // Math.floor(Math.random() * Chunk.sizeY)
-							var z = Math.floor(Math.random() * Chunk.sizeZ)
-							var middleChunk = World.chunks['0,0,0']
-
-							var blockPos = middleChunk.getBlockPos(x, y, z)
-							blockPos.setBlockData( blockPos.getBlockData() === 1 ? 0 : 1 )
-						}
+						//if (elapsedTime > 0.1) {
+						//	elapsedTime -= 0.1
+						//	//debugger;
+						//	var x = Math.floor(Math.random() * Chunk.sizeX)
+						//	var y = 3 // Math.floor(Math.random() * Chunk.sizeY)
+						//	var z = Math.floor(Math.random() * Chunk.sizeZ)
+						//	var middleChunk = World.chunks['0,0,0']
+						//
+						//	var blockPos = middleChunk.getBlockPos(x, y, z)
+						//	blockPos.setBlockData( blockPos.getBlockData() === 1 ? 0 : 1 )
+						//}
 
 						PlayerControls.update(dt)
-						
+
+						document.getElementById("coords").innerHTML = `x = ${Math.round(camera.position.x)}, y = ${Math.round(camera.position.y)}, z = ${Math.round(camera.position.z)}<br>` + World.getBlockPosFromWorldPoint(camera.position).toString()
+
+						raycaster.setFromCamera( new THREE.Vector2(), camera )
+						voxelRaycast = World.raycast(raycaster.ray, 1000)
+						if (voxelRaycast) {
+							var side = Sides.TOP // TODO
+
+							blockOutline.position.copy(voxelRaycast.blockPos.getWorldPoint())
+							blockOutline.geometry.setDrawRange(5 * voxelRaycast.side.id, 5) // vector3 * 5 vertices for a closed path
+							blockOutline.visible = true
+
+						}
+						else {
+							blockOutline.visible = false
+
+						}
+
+
 						World.cleanAllDirtyChunks()
 
 						renderer.render(scene, camera)
+
+						requestAnimationFrame( render );
+						stats.elapsed.end()
+						stats.fps.update()
 					};
 
 					requestAnimationFrame( render )

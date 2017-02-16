@@ -17,15 +17,19 @@ document.addEventListener( 'pointerlockchange', pointerlockchange, false );
 document.addEventListener( 'mozpointerlockchange', pointerlockchange, false );
 document.addEventListener( 'webkitpointerlockchange', pointerlockchange, false );
 
-document.addEventListener( 'click', function ( event ) {
-	if (!pointerLocked) {
-		element.requestPointerLock = element.requestPointerLock || element.mozRequestPointerLock || element.webkitRequestPointerLock;
-		element.requestPointerLock();
-	}
-}, false );
 
 var PlayerControls = {
 	init(camera) {
+
+		document.addEventListener( 'click', function ( event ) {
+			if (!pointerLocked) {
+				element.requestPointerLock = element.requestPointerLock || element.mozRequestPointerLock || element.webkitRequestPointerLock;
+				element.requestPointerLock();
+			}
+			else {
+				camera.dispatchEvent( { type: 'click', button: event.button } )
+			}
+		}, false );
 
 		fps = new THREE.FirstPersonControls( camera );
 		fps.movementSpeed = 10;

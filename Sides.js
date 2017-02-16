@@ -24,3 +24,9 @@ Sides.each = callback => {
 		callback(SidesById[sideId])
 	}
 }
+
+Sides.findFromNormal = normal => {
+	return _.minBy(SidesById, side => {
+		return Math.abs( side.dx - normal.x ) + Math.abs( side.dy - normal.y ) + Math.abs( side.dz - normal.z )
+	})
+}

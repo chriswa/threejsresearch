@@ -1,5 +1,13 @@
 var World = {
 	chunks: {},
+	getBlockPosFromWorldPoint(p) {
+		var cx = Math.floor(p.x / Chunk.sizeX)
+		var cy = Math.floor(p.y / Chunk.sizeY)
+		var cz = Math.floor(p.z / Chunk.sizeZ)
+		var chunk = this.chunks[ this.getChunkId(cx, cy, cz) ]
+		if (!chunk) { return BlockPos.badPos }
+		return chunk.getBlockPos(Math.floor(p.x - cx * Chunk.sizeX), Math.floor(p.y - cy * Chunk.sizeY), Math.floor(p.z - cz * Chunk.sizeZ))
+	},
 	getChunkId(cx, cy, cz) {
 		return cx + ',' + cy + ',' + cz
 	},
@@ -40,16 +48,18 @@ var World = {
 					for (var x = 0, i = 0; x < Chunk.sizeX; x += 1) {
 						for (var y = 0; y < Chunk.sizeY; y += 1) {
 							for (var z = 0; z < Chunk.sizeZ; z += 1, i += 1) {
+								var sampleX = x + cx * Chunk.sizeX
 								var sampleY = y + cy * Chunk.sizeY
+								var sampleZ = z + cz * Chunk.sizeZ
 								//var isDirt = Math.random() * sampleY * sampleY * sampleY / 2 < 1
 								var isDirt = 1
-								if (sampleY >= 3) { isDirt = 0; }
+								//if (sampleY >= 3) { isDirt = 0 }
 
-								if (sampleY === 3) {
-									//isDirt = Math.random() < 0.25 ? 1 : 0;
-									isDirt = noise.simplex2(x, z) > 0.5
-
-								}
+								//if (sampleY === 3) {
+								//	//isDirt = Math.random() < 0.25 ? 1 : 0;
+								//	isDirt = noise.simplex2(x + cx * Chunk.sizeX, z + cz * Chunk.sizeZ) > 0.5
+								//}
+								isDirt = noise.simplex3(sampleX / 10, sampleY / 50, sampleZ / 10) > sampleY / 10
                                 
 								blockData[i] = isDirt ? 1 : 0; // dirt, air
 							}
@@ -61,5 +71,106 @@ var World = {
 			}
 		}
 		_.each(World.chunks, chunk => chunk.drawAllQuads() )
+	},
+	raycast(ray, max_d) { // ray.direction must be normalized
+		var origin = ray.origin
+		var direction = ray.direction // normalized
+
+		var blockPos = World.getBlockPosFromWorldPoint(origin)
+
+		var px = origin.x
+		var py = origin.y
+		var pz = origin.z
+		var dx = direction.x
+		var dy = direction.y
+		var dz = direction.z
+
+		var t = 0.0
+				, floor = Math.floor
+				, ix = floor(px) | 0
+				, iy = floor(py) | 0
+				, iz = floor(pz) | 0
+
+				, stepx = (dx > 0) ? 1 : -1
+				, stepy = (dy > 0) ? 1 : -1
+				, stepz = (dz > 0) ? 1 : -1
+				
+			// dx,dy,dz are already normalized
+				, txDelta = Math.abs(1 / dx)
+				, tyDelta = Math.abs(1 / dy)
+				, tzDelta = Math.abs(1 / dz)
+
+				, xdist = (stepx > 0) ? (ix + 1 - px) : (px - ix)
+				, ydist = (stepy > 0) ? (iy + 1 - py) : (py - iy)
+				, zdist = (stepz > 0) ? (iz + 1 - pz) : (pz - iz)
+				
+			// location of nearest voxel boundary, in units of t 
+				, txMax = (txDelta < Infinity) ? txDelta * xdist : Infinity
+				, tyMax = (tyDelta < Infinity) ? tyDelta * ydist : Infinity
+				, tzMax = (tzDelta < Infinity) ? tzDelta * zdist : Infinity
+
+				, steppedIndex = -1
+
+		// main loop along raycast vector
+		while (t <= max_d) {
+			
+			if (!blockPos.isLoaded) {
+				return undefined
+			}
+
+			// exit check
+			var b = blockPos.getBlockData()
+			if (b === 1) {
+				//if (hit_pos) {
+				//	hit_pos[0] = px + t * dx
+				//	hit_pos[1] = py + t * dy
+				//	hit_pos[2] = pz + t * dz
+				//}
+				var side
+				if (steppedIndex === 0) {
+					side = (stepx > 0) ? Sides.WEST : Sides.EAST
+				}
+				else if (steppedIndex === 1) {
+					side = (stepy > 0) ? Sides.BOTTOM : Sides.TOP
+				}
+				else {
+					side = (stepz > 0) ? Sides.SOUTH : Sides.NORTH
+				}
+				return { blockPos: blockPos, dist: t, side: side }
+			}
+			
+			// advance t to next nearest voxel boundary
+			if (txMax < tyMax) {
+				if (txMax < tzMax) {
+					//ix += stepx
+					blockPos.add(stepx, 0, 0)
+					t = txMax
+					txMax += txDelta
+					steppedIndex = 0
+				} else {
+					//iz += stepz
+					blockPos.add(0, 0, stepz)
+					t = tzMax
+					tzMax += tzDelta
+					steppedIndex = 2
+				}
+			} else {
+				if (tyMax < tzMax) {
+					//iy += stepy
+					blockPos.add(0, stepy, 0)
+					t = tyMax
+					tyMax += tyDelta
+					steppedIndex = 1
+				} else {
+					//iz += stepz
+					blockPos.add(0, 0, stepz)
+					t = tzMax
+					tzMax += tzDelta
+					steppedIndex = 2
+				}
+			}
+		}
+		// max_d exceeded
+		return undefined
 	},
 }
