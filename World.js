@@ -31,6 +31,13 @@ var World = {
 				neighbour.addChunkNeighbour(side.opposite, chunk)
 			}
 		}
+
+		chunk.drawAllQuads()
+	},
+	removeChunk(chunk) {
+		scene.remove( chunk.mesh )
+		chunk.dispose()
+		delete(this.chunks[ chunk.id ])
 	},
 	dirtyChunks: {},
 	markChunkAsDirty(chunk) {
@@ -42,38 +49,69 @@ var World = {
 	},
 	build() {
 		noise.seed(0)
-		for (var cx = -5; cx <= 5; cx += 1) {
-			for (var cy = -5; cy <= 5; cy += 1) {
-				for (var cz = -5; cz <= 5; cz += 1) {
-					if (Math.sqrt(cx*cx + cy*cy + cz*cz) > 2.5) { continue }
+		this.loadChunk(0, 0, 0)
+		var centerChunk = this.chunks[ this.getChunkId(0, 0, 0) ]
+		this.updateNearbyChunks(centerChunk)
+	},
+	updateNearbyChunks(centerChunk) {
+		_.each(this.chunks, chunk => chunk.outOfRange = true )
 
-					var blockData = new Uint16Array( Chunk.sizeX * Chunk.sizeY * Chunk.sizeZ )
-					for (var x = 0, i = 0; x < Chunk.sizeX; x += 1) {
-						for (var y = 0; y < Chunk.sizeY; y += 1) {
-							for (var z = 0; z < Chunk.sizeZ; z += 1, i += 1) {
-								var sampleX = x + cx * Chunk.sizeX
-								var sampleY = y + cy * Chunk.sizeY
-								var sampleZ = z + cz * Chunk.sizeZ
-								//var isDirt = Math.random() * sampleY * sampleY * sampleY / 2 < 1
-								var isDirt = 1
-								//if (sampleY >= 3) { isDirt = 0 }
+		var chunkLoadCount = 0
+		var chunkRange = 3
+		for (var dcx = -chunkRange; dcx <= chunkRange; dcx += 1) {
+			for (var dcy = -chunkRange; dcy <= chunkRange; dcy += 1) {
+				for (var dcz = -chunkRange; dcz <= chunkRange; dcz += 1) {
+					if (Math.sqrt(dcx*dcx + dcy*dcy + dcz*dcz) > chunkRange) { continue }
 
-								//if (sampleY === 3) {
-								//	//isDirt = Math.random() < 0.25 ? 1 : 0;
-								//	isDirt = noise.simplex2(x + cx * Chunk.sizeX, z + cz * Chunk.sizeZ) > 0.5
-								//}
-								isDirt = noise.simplex3(sampleX / 10, sampleY / 50, sampleZ / 10) > sampleY / 10
-                                
-								blockData[i] = isDirt ? 1 : 0; // dirt, air
-							}
-						}
+					var cx = centerChunk.cx + dcx
+					var cy = centerChunk.cy + dcy
+					var cz = centerChunk.cz + dcz
+
+					var alreadyLoadedChunk = this.chunks[this.getChunkId(cx, cy, cz)]
+					if (alreadyLoadedChunk) {
+						alreadyLoadedChunk.outOfRange = false
+						continue
 					}
 
-					World.addChunk(blockData, cx, cy, cz)
+					chunkLoadCount += 1
+					this.loadChunk(cx, cy, cz)
+
 				}
 			}
 		}
-		_.each(World.chunks, chunk => chunk.drawAllQuads() )
+		console.log(`loaded ${chunkLoadCount} chunks`)
+		_.each(this.chunks, chunk => {
+			if (chunk.outOfRange) {
+				this.removeChunk(chunk)
+			}
+		})
+	},
+	loadChunk(cx, cy, cz) {
+		console.log(`loadChunk(${cx}, ${cy}, ${cz})`)
+		var chunkBlockData = new Uint16Array( Chunk.sizeX * Chunk.sizeY * Chunk.sizeZ )
+		for (var x = 0, i = 0; x < Chunk.sizeX; x += 1) {
+			for (var y = 0; y < Chunk.sizeY; y += 1) {
+				for (var z = 0; z < Chunk.sizeZ; z += 1, i += 1) {
+					var sampleX = x + cx * Chunk.sizeX
+					var sampleY = y + cy * Chunk.sizeY
+					var sampleZ = z + cz * Chunk.sizeZ
+					
+					var blockData = 0
+					if (noise.simplex3(sampleX / 20, sampleY / 50, sampleZ / 20) > sampleY / 5) {
+						blockData = BlockTypesByName.dirt.id
+					}
+					if (noise.simplex3((sampleX + 874356) / 10, sampleY / 50, (sampleZ + 874356) / 10) > ((sampleY + 0) / 10)) {
+						blockData = BlockTypesByName.stone.id
+					}
+
+					//if (cx === 0) { blockData = 0 }
+
+					//isDirt = sampleY < 3
+					chunkBlockData[i] = blockData;
+				}
+			}
+		}
+		World.addChunk(chunkBlockData, cx, cy, cz)
 	},
 	raycast(ray, max_d) { // ray.direction must be normalized // https://github.com/andyhall/fast-voxel-raycast/
 		var origin = ray.origin
@@ -122,8 +160,7 @@ var World = {
 			}
 
 			// exit check
-			var b = blockPos.getBlockData()
-			if (b === 1) {
+			if (blockPos.isOpaque()) {
 				//if (hit_pos) {
 				//	hit_pos[0] = px + t * dx
 				//	hit_pos[1] = py + t * dy

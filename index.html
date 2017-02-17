@@ -20,7 +20,9 @@
 		<script src="PlayerControls.js"></script>
 		<script src="lodash.js"></script>
 		<script src="Chunk.js"></script>
+		<script src="BlockPos.js"></script>
 		<script src="Sides.js"></script>
+		<script src="BlockTypes.js"></script>
 		<script src="World.js"></script>
 		<script>
 			var stats = {}
@@ -47,9 +49,9 @@
 
 			var scene  = new THREE.Scene();
 			var camera = new THREE.PerspectiveCamera( 75, window.innerWidth / window.innerHeight, 0.1, 1000 );
-			camera.position.z = 17;
+			camera.position.z = 7.5;
 			camera.position.y = 4.5;
-			camera.position.x = 4;
+			camera.position.x = 7.5;
 
 			window.addEventListener( 'resize', () => {
 				camera.aspect = window.innerWidth / window.innerHeight;
@@ -71,7 +73,7 @@
 					voxelRaycast.blockPos.setBlockData(0)
 				}
 				else {
-					voxelRaycast.blockPos.getAdjacentBlockPos(voxelRaycast.side).setBlockData(1)
+					voxelRaycast.blockPos.getAdjacentBlockPos(voxelRaycast.side).setBlockData(BlockTypesByName.planks.id)
 				}
 			})
 
@@ -93,6 +95,8 @@
 
 					PlayerControls.init(camera)
 
+					var lastPlayerChunkId = World.getBlockPosFromWorldPoint(camera.position).chunk.id
+
 					var blockOutlineVerts = []
 					Sides.each(side => {
 						blockOutlineVerts = blockOutlineVerts.concat(side.verts).concat(side.verts.slice(0, 3))
@@ -110,8 +114,9 @@
 						var dt = clock.getDelta()
 						elapsedTime += dt
 
-						//if (elapsedTime > 0.1) {
-						//	elapsedTime -= 0.1
+						//// spam block updates!
+						//if (elapsedTime > 0.01) {
+						//	elapsedTime -= 0.01
 						//	//debugger;
 						//	var x = Math.floor(Math.random() * Chunk.sizeX)
 						//	var y = 3 // Math.floor(Math.random() * Chunk.sizeY)
@@ -119,26 +124,31 @@
 						//	var middleChunk = World.chunks['0,0,0']
 						//
 						//	var blockPos = middleChunk.getBlockPos(x, y, z)
-						//	blockPos.setBlockData( blockPos.getBlockData() === 1 ? 0 : 1 )
+						//	blockPos.setBlockData( blockPos.getBlockData() === 4 ? 0 :  4 )
 						//}
 
 						PlayerControls.update(dt)
 
-						document.getElementById("coords").innerHTML = `x = ${Math.round(camera.position.x)}, y = ${Math.round(camera.position.y)}, z = ${Math.round(camera.position.z)}<br>` + World.getBlockPosFromWorldPoint(camera.position).toString()
+						// move chunks?
+						var playerBlockPos = World.getBlockPosFromWorldPoint(camera.position)
+						if (playerBlockPos.chunk.id !== lastPlayerChunkId) {
+							console.log("center chunk moved!")
+							World.updateNearbyChunks(playerBlockPos.chunk)
+							lastPlayerChunkId = playerBlockPos.chunk.id
+						}
 
-						raycaster.setFromCamera( new THREE.Vector2(), camera )
-						voxelRaycast = World.raycast(raycaster.ray, 1000)
+						document.getElementById("coords").innerHTML = `x = ${Math.round(camera.position.x)}, y = ${Math.round(camera.position.y)}, z = ${Math.round(camera.position.z)}<br>` + playerBlockPos.toString()
+
+						raycaster.setFromCamera( new THREE.Vector2(), camera ) // hijacking some linear algebra to set raycaster.ray
+						var max_d = 5000
+						voxelRaycast = World.raycast(raycaster.ray, max_d)
 						if (voxelRaycast) {
-							var side = Sides.TOP // TODO
-
 							blockOutline.position.copy(voxelRaycast.blockPos.getWorldPoint())
 							blockOutline.geometry.setDrawRange(5 * voxelRaycast.side.id, 5) // vector3 * 5 vertices for a closed path
 							blockOutline.visible = true
-
 						}
 						else {
 							blockOutline.visible = false
-
 						}
 
 
