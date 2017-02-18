@@ -4,6 +4,37 @@ var indicesPerFace = 6;
 var maxVerts = 64 * 1024 // this should be 64k
 var maxQuadsPerMesh = maxVerts / uniqVertsPerFace
 
+var ChunkMeshPool = {
+	pool: [],
+	get() {
+		var chunkMesh
+		if (this.pool.length) {
+			chunkMesh = this.pool.pop()
+			chunkMesh.mesh.visible = true
+		}
+		else {
+			chunkMesh = {}
+			chunkMesh.geometry = new THREE.BufferGeometry()
+			chunkMesh.interleavedData = new Float32Array(maxQuadsPerMesh * 8 * 4)
+			chunkMesh.interleavedBuffer = new THREE.InterleavedBuffer(chunkMesh.interleavedData, 3 + 2 + 3)
+			chunkMesh.interleavedBuffer.setDynamic(true)
+			chunkMesh.geometry.addAttribute( 'position', new THREE.InterleavedBufferAttribute( chunkMesh.interleavedBuffer, 3, 0 ) )
+			chunkMesh.geometry.addAttribute( 'uv',       new THREE.InterleavedBufferAttribute( chunkMesh.interleavedBuffer, 2, 3 ) )
+			chunkMesh.geometry.addAttribute( 'color',    new THREE.InterleavedBufferAttribute( chunkMesh.interleavedBuffer, 3, 5 ) )
+			chunkMesh.geometry.setIndex( Chunk.sharedQuadIndexBufferAttribute )
+			var maxSize = Math.max(Chunk.sizeX, Chunk.sizeY, Chunk.sizeZ)
+			chunkMesh.geometry.boundingBox = new THREE.Box3(0, maxSize)
+			chunkMesh.geometry.boundingSphere = new THREE.Sphere(new THREE.Vector3(maxSize/2, maxSize/2, maxSize/2), maxSize * 1.73205080757) // sphere radius to cover cube
+			chunkMesh.mesh = new THREE.Mesh( chunkMesh.geometry, Chunk.material )
+		}
+		return chunkMesh
+	},
+	release(chunkMesh) {
+		chunkMesh.mesh.visible = false
+		this.pool.push(chunkMesh)
+	},
+}
+
 class Chunk {
 	constructor(blockData, cx, cy, cz) {
 		this.blockData = blockData
@@ -19,19 +50,12 @@ class Chunk {
 		this.quadIdsByBlockAndSide = new Uint16Array(Chunk.sizeX * Chunk.sizeY * Chunk.sizeZ * facesPerCube)
 
 		this.neighboursBySideId = [ undefined, undefined, undefined, undefined, undefined, undefined ]
-		this.geometry = new THREE.BufferGeometry();
-		this.interleavedData = new Float32Array(maxQuadsPerMesh * 8 * 4)
-		this.interleavedBuffer = new THREE.InterleavedBuffer(this.interleavedData, 3 + 2 + 3);
-		this.interleavedBuffer.setDynamic(true)
-		this.geometry.addAttribute( 'position', new THREE.InterleavedBufferAttribute( this.interleavedBuffer, 3, 0 ) );
-		this.geometry.addAttribute( 'uv',       new THREE.InterleavedBufferAttribute( this.interleavedBuffer, 2, 3 ) );
-		this.geometry.addAttribute( 'color',    new THREE.InterleavedBufferAttribute( this.interleavedBuffer, 3, 5 ) );
-		this.geometry.setIndex( Chunk.sharedQuadIndexBufferAttribute );
-		this.mesh = new THREE.Mesh( this.geometry, Chunk.material );
-		this.mesh.chunk = this
+		this.chunkMesh = ChunkMeshPool.get()
+		this.interleavedData = this.chunkMesh.interleavedData // optimization
+		this.chunkMesh.mesh.chunk = this // XXX: is this necessary? if so, add comment as to why
 	}
 	dispose() {
-		this.geometry.dispose()
+		ChunkMeshPool.release(this.chunkMesh)
 	}
 	eachPos(callback) {
 		var blockPos = new BlockPos(this, 0, 0, 0)
@@ -151,11 +175,53 @@ class Chunk {
 					
 				})
 			}
+			
 		})
+		
+		// because we are not drawing quads facing the void, we must add quads to neighbouring chunks which face our air blocks
+		Sides.each(side => {
+			var neighbourChunk = this.neighboursBySideId[ side.id ]
+			if (neighbourChunk) {
+				var ourBlockPos       = new BlockPos(this, 0, 0, 0) // side.dx === 1 ? side.size-1 : 0, side.dy === 1 ? side.size-1 : 0, side.dz === 1 ? side.size-1 : 0
+				var neighbourBlockPos = new BlockPos(neighbourChunk, 0, 0, 0)
+				
+				var ourCoordIndices
+				var neighbourCoordIndices
+				switch (side) {
+					case Sides.TOP:    ourCoordIndices = [0, 3, 1]; neighbourCoordIndices = [0, 2, 1]; break
+					case Sides.BOTTOM: ourCoordIndices = [0, 2, 1]; neighbourCoordIndices = [0, 3, 1]; break
+					case Sides.NORTH:  ourCoordIndices = [0, 1, 3]; neighbourCoordIndices = [0, 1, 2]; break
+					case Sides.SOUTH:  ourCoordIndices = [0, 1, 2]; neighbourCoordIndices = [0, 1, 3]; break
+					case Sides.EAST:   ourCoordIndices = [3, 0, 1]; neighbourCoordIndices = [2, 0, 1]; break
+					case Sides.WEST:   ourCoordIndices = [2, 0, 1]; neighbourCoordIndices = [3, 0, 1]; break
+				}
+				
+				
+				var coords = [undefined, undefined, 0, Chunk.sizeX-1]
+				for (coords[0] = 0; coords[0] < Chunk.sizeX; coords[0] += 1) {       // XXX: assumes cubical chunks!
+					for (coords[1] = 0; coords[1] < Chunk.sizeX; coords[1] += 1) {     // XXX: assumes cubical chunks!
+						ourBlockPos.x = coords[ourCoordIndices[0]]
+						ourBlockPos.y = coords[ourCoordIndices[1]]
+						ourBlockPos.z = coords[ourCoordIndices[2]]
+						ourBlockPos.recalculateIndex()
+						if (ourBlockPos.isTransparent()) {
+							neighbourBlockPos.x = coords[neighbourCoordIndices[0]]
+							neighbourBlockPos.y = coords[neighbourCoordIndices[1]]
+							neighbourBlockPos.z = coords[neighbourCoordIndices[2]]
+							neighbourBlockPos.recalculateIndex()
+							if (neighbourBlockPos.isOpaque()) {
+								neighbourChunk.drawFace(neighbourBlockPos, side.opposite)
+							}
+						}
+					}
+				}
+			}
+		})
+		
 		this.interleavedUpdates = []
 		//this.interleavedBuffer.updateRange = { offset: 0, count: this.quadCount * 6 * 8 }
 		//this.interleavedBuffer.needsUpdate = true
-		this.geometry.setDrawRange(0, 6 * this.quadCount) // 6 vertex indices per quad (i.e. 2 triangles)
+		this.chunkMesh.geometry.setDrawRange(0, 6 * this.quadCount) // 6 vertex indices per quad (i.e. 2 triangles)
 	}
 	drawFace(blockPos, side) {
 
@@ -241,7 +307,7 @@ class Chunk {
 		else {
 			quadId = this.quadCount
 			this.quadCount += 1
-			this.geometry.setDrawRange(0, this.quadCount * indicesPerFace)
+			this.chunkMesh.geometry.setDrawRange(0, this.quadCount * indicesPerFace)
 		}
 		var cursor = quadId * 8 * uniqVertsPerFace
 		this.interleavedUpdates.push({ offset: cursor, count: 8 * uniqVertsPerFace })
@@ -277,8 +343,8 @@ class Chunk {
 		//console.log(`this.interleavedUpdates = ${JSON.stringify(this.interleavedUpdates)}`)
 
 		//this.interleavedBuffer.updateRange = this.interleavedUpdates // { offset: 0, count: this.quadCount * 6 * 8 }
-		this.interleavedBuffer.updateRange = [{ offset: 0, count: this.quadCount * 6 * 8 }]
-		this.interleavedBuffer.needsUpdate = true
+		this.chunkMesh.interleavedBuffer.updateRange = [{ offset: 0, count: this.quadCount * 6 * 8 }]
+		this.chunkMesh.interleavedBuffer.needsUpdate = true
 		this.interleavedUpdates = []
 
 	}

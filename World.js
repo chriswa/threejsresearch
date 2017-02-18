@@ -16,10 +16,10 @@ var World = {
 	},
 	addChunk(blockData, cx, cy, cz) {
 		var chunk = new Chunk(blockData, cx, cy, cz)
-		chunk.mesh.position.x = cx * Chunk.sizeX
-		chunk.mesh.position.y = cy * Chunk.sizeY
-		chunk.mesh.position.z = cz * Chunk.sizeZ
-		scene.add( chunk.mesh );
+		chunk.chunkMesh.mesh.position.x = cx * Chunk.sizeX
+		chunk.chunkMesh.mesh.position.y = cy * Chunk.sizeY
+		chunk.chunkMesh.mesh.position.z = cz * Chunk.sizeZ
+		scene.add( chunk.chunkMesh.mesh );
 
 		this.chunks[ chunk.id ] = chunk
 
@@ -87,11 +87,12 @@ var World = {
 		})
 	},
 	loadChunk(cx, cy, cz) {
-		console.log(`loadChunk(${cx}, ${cy}, ${cz})`)
+		//console.log(`loadChunk(${cx}, ${cy}, ${cz})`)
 		var chunkBlockData = new Uint16Array( Chunk.sizeX * Chunk.sizeY * Chunk.sizeZ )
 		for (var x = 0, i = 0; x < Chunk.sizeX; x += 1) {
 			for (var y = 0; y < Chunk.sizeY; y += 1) {
 				for (var z = 0; z < Chunk.sizeZ; z += 1, i += 1) {
+					
 					var sampleX = x + cx * Chunk.sizeX
 					var sampleY = y + cy * Chunk.sizeY
 					var sampleZ = z + cz * Chunk.sizeZ
