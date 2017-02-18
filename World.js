@@ -14,8 +14,8 @@ var World = {
 	getChunkId(cx, cy, cz) {
 		return cx + ',' + cy + ',' + cz
 	},
-	addChunk(blockData, cx, cy, cz) {
-		var chunk = new Chunk(blockData, cx, cy, cz)
+	addChunk(cx, cy, cz) {
+		var chunk = new Chunk(cx, cy, cz)
 		chunk.chunkMesh.mesh.position.x = cx * Chunk.sizeX
 		chunk.chunkMesh.mesh.position.y = cy * Chunk.sizeY
 		chunk.chunkMesh.mesh.position.z = cz * Chunk.sizeZ
@@ -27,25 +27,20 @@ var World = {
 			var side = SidesById[sideId]
 			var neighbour = this.chunks[ this.getChunkId(cx + side.dx, cy + side.dy, cz + side.dz) ]
 			if (neighbour) {
-				chunk.addChunkNeighbour(side, neighbour)
-				neighbour.addChunkNeighbour(side.opposite, chunk)
+				chunk.attachChunkNeighbour(side, neighbour)
+				neighbour.attachChunkNeighbour(side.opposite, chunk)
 			}
 		}
 
-		chunk.drawAllQuads()
+		return chunk
 	},
 	removeChunk(chunk) {
 		scene.remove( chunk.mesh )
 		chunk.dispose()
 		delete(this.chunks[ chunk.id ])
 	},
-	dirtyChunks: {},
-	markChunkAsDirty(chunk) {
-		this.dirtyChunks[chunk.id] = chunk
-	},
-	cleanAllDirtyChunks() {
-		_.each(this.dirtyChunks, chunk => chunk.cleanup())
-		this.dirtyChunks = {}
+	updateChunks() {
+		_.each(this.chunks, chunk => chunk.update())
 	},
 	build() {
 		noise.seed(0)
@@ -56,12 +51,14 @@ var World = {
 	updateNearbyChunks(centerChunk) {
 		_.each(this.chunks, chunk => chunk.outOfRange = true )
 
+		var chunksToLoad = []
+
 		var chunkLoadCount = 0
 		var chunkRange = 3
 		for (var dcx = -chunkRange; dcx <= chunkRange; dcx += 1) {
 			for (var dcy = -chunkRange; dcy <= chunkRange; dcy += 1) {
 				for (var dcz = -chunkRange; dcz <= chunkRange; dcz += 1) {
-					if (Math.sqrt(dcx*dcx + dcy*dcy + dcz*dcz) > chunkRange) { continue }
+					if (Math.sqrt(dcx*dcx + dcy*dcy + dcz*dcz) > chunkRange + 0.5) { continue }
 
 					var cx = centerChunk.cx + dcx
 					var cy = centerChunk.cy + dcy
@@ -73,22 +70,26 @@ var World = {
 						continue
 					}
 
-					chunkLoadCount += 1
-					this.loadChunk(cx, cy, cz)
+					chunksToLoad.push([cx, cy, cz])
 
 				}
 			}
 		}
-		console.log(`loaded ${chunkLoadCount} chunks`)
+		var chunksToRemove = []
 		_.each(this.chunks, chunk => {
 			if (chunk.outOfRange) {
-				this.removeChunk(chunk)
+				chunksToRemove.push(chunk)
 			}
+		})
+		_.each(chunksToRemove, chunk => this.removeChunk(chunk))
+		_.each(chunksToLoad, coords => {
+			this.loadChunk(coords[0], coords[1], coords[2]) // cx, cy, cz
 		})
 	},
 	loadChunk(cx, cy, cz) {
-		//console.log(`loadChunk(${cx}, ${cy}, ${cz})`)
-		var chunkBlockData = new Uint16Array( Chunk.sizeX * Chunk.sizeY * Chunk.sizeZ )
+		var chunk = World.addChunk(cx, cy, cz)
+
+		var chunkBlockData = chunk.blockData
 		for (var x = 0, i = 0; x < Chunk.sizeX; x += 1) {
 			for (var y = 0; y < Chunk.sizeY; y += 1) {
 				for (var z = 0; z < Chunk.sizeZ; z += 1, i += 1) {
@@ -96,15 +97,24 @@ var World = {
 					var sampleX = x + cx * Chunk.sizeX
 					var sampleY = y + cy * Chunk.sizeY
 					var sampleZ = z + cz * Chunk.sizeZ
-					
-					var blockData = 0
-					if (noise.simplex3(sampleX / 20, sampleY / 50, sampleZ / 20) > sampleY / 5) {
-						blockData = BlockTypesByName.dirt.id
-					}
-					if (noise.simplex3((sampleX + 874356) / 10, sampleY / 50, (sampleZ + 874356) / 10) > ((sampleY + 0) / 10)) {
-						blockData = BlockTypesByName.stone.id
-					}
 
+					var blockData = 0
+
+					if (sampleY < -6) {
+							blockData = BlockTypesByName.stone.id
+					}
+					else if (sampleY > 12) {
+							blockData = BlockTypesByName.air.id
+					}
+					else {
+						if (noise.simplex3(sampleX / 20, sampleY / 50, sampleZ / 20) > sampleY / 5) {
+							blockData = BlockTypesByName.dirt.id
+						}
+						if (noise.simplex3((sampleX + 874356) / 10, sampleY / 50, (sampleZ + 874356) / 10) > ((sampleY + 0) / 10)) {
+							blockData = BlockTypesByName.stone.id
+						}
+					}
+					
 					//if (cx === 0) { blockData = 0 }
 
 					//isDirt = sampleY < 3
@@ -112,7 +122,8 @@ var World = {
 				}
 			}
 		}
-		World.addChunk(chunkBlockData, cx, cy, cz)
+
+		chunk.redraw()
 	},
 	raycast(ray, max_d) { // ray.direction must be normalized // https://github.com/andyhall/fast-voxel-raycast/
 		var origin = ray.origin

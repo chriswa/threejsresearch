@@ -4,6 +4,19 @@ var indicesPerFace = 6;
 var maxVerts = 64 * 1024 // this should be 64k
 var maxQuadsPerMesh = maxVerts / uniqVertsPerFace
 
+var ChunkBlockDataPool = {
+	pool: [],
+	get() {
+		if (this.pool.length) {
+			return this.pool.pop()
+		}
+		return new Uint16Array( Chunk.sizeX * Chunk.sizeY * Chunk.sizeZ )
+	},
+	release(blockData) {
+		this.pool.push(blockData)
+	},
+}
+
 var ChunkMeshPool = {
 	pool: [],
 	get() {
@@ -11,9 +24,12 @@ var ChunkMeshPool = {
 		if (this.pool.length) {
 			chunkMesh = this.pool.pop()
 			chunkMesh.mesh.visible = true
+			chunkMesh.bufferIsNew = false
+			chunkMesh.geometry.setDrawRange(0, 0)
 		}
 		else {
 			chunkMesh = {}
+			chunkMesh.bufferIsNew = true
 			chunkMesh.geometry = new THREE.BufferGeometry()
 			chunkMesh.interleavedData = new Float32Array(maxQuadsPerMesh * 8 * 4)
 			chunkMesh.interleavedBuffer = new THREE.InterleavedBuffer(chunkMesh.interleavedData, 3 + 2 + 3)
@@ -36,8 +52,8 @@ var ChunkMeshPool = {
 }
 
 class Chunk {
-	constructor(blockData, cx, cy, cz) {
-		this.blockData = blockData
+	constructor(cx, cy, cz) {
+		this.blockData = ChunkBlockDataPool.get()
 		this.cx = cx
 		this.cy = cy
 		this.cz = cz
@@ -56,6 +72,12 @@ class Chunk {
 	}
 	dispose() {
 		ChunkMeshPool.release(this.chunkMesh)
+		Sides.each(side => {
+			if (this.neighboursBySideId[ side.id ]) {
+				this.neighboursBySideId[ side.id ].neighboursBySideId[ side.opposite.id ] = undefined
+			}
+		})
+		this.neighboursBySideId = undefined
 	}
 	eachPos(callback) {
 		var blockPos = new BlockPos(this, 0, 0, 0)
@@ -67,11 +89,8 @@ class Chunk {
 			}
 		}
 	}
-	addChunkNeighbour(side, chunk) {
+	attachChunkNeighbour(side, chunk) {
 		this.neighboursBySideId[ side.id ] = chunk
-	}
-	removeChunkNeighbour(side) {
-		this.neighboursBySideId[ side.id ] = undefined
 	}
 	getBlockPos(x, y, z) {
 		return new BlockPos(this, x, y, z)
@@ -131,54 +150,44 @@ class Chunk {
 			var adjacentBlockPos = mainBlockPos.getAdjacentBlockPos(mainBlockSide)
 			if (!adjacentBlockPos.isLoaded) { continue }
 
-			for (var tangentIndex = 0; tangentIndex < 4; tangentIndex += 1) {
-				var tangent = mainBlockSide.tangents[tangentIndex]
+			adjacentBlockPos.chunk.updateAO(adjacentBlockPos, mainBlockSide.opposite)
 
-				var edgeBlockPos = adjacentBlockPos.getAdjacentBlockPos(tangent.side)
-				if (!edgeBlockPos.isLoaded) { continue }
+		}
+	}
+	updateAO(airBlockPos, solidSourceBlockSide) {
+		for (var tangentIndex = 0; tangentIndex < 4; tangentIndex += 1) {
+			var tangent = solidSourceBlockSide.tangents[tangentIndex]
 
-				if (edgeBlockPos.isOpaque()) {
-					edgeBlockPos.chunk.redrawFace(edgeBlockPos, tangent.side.opposite) // potential optimization: if mainBlock is being added, we only need to make sure two vertices are darkened; not sure about optimizing mainBlock removal
-				}
-				else {
+			var edgeBlockPos = airBlockPos.getAdjacentBlockPos(tangent.side)
+			if (!edgeBlockPos.isLoaded) { continue }
 
-					for (var tangentTangentIndex = 0; tangentTangentIndex < 2; tangentTangentIndex += 1) {
-						var tangentTangentSide = tangent.tangents[tangentTangentIndex]
+			if (edgeBlockPos.isOpaque()) {
+				edgeBlockPos.chunk.redrawFace(edgeBlockPos, tangent.side.opposite) // potential optimization: if mainBlock is being added, we only need to make sure two vertices are darkened; not sure about optimizing mainBlock removal
+			}
+			else {
 
-						var cornerBlockPos = edgeBlockPos.getAdjacentBlockPos(tangentTangentSide)
-						if (cornerBlockPos.isOpaque()) {
-							cornerBlockPos.chunk.redrawFace(cornerBlockPos, tangentTangentSide.opposite)  // potential optimization: if mainBlock is being added, we only need to make sure two vertices are darkened; not sure about optimizing mainBlock removal
-						}
+				for (var tangentTangentIndex = 0; tangentTangentIndex < 2; tangentTangentIndex += 1) {
+					var tangentTangentSide = tangent.tangents[tangentTangentIndex]
 
+					var cornerBlockPos = edgeBlockPos.getAdjacentBlockPos(tangentTangentSide)
+					if (cornerBlockPos.isOpaque()) {
+						cornerBlockPos.chunk.redrawFace(cornerBlockPos, tangentTangentSide.opposite)  // potential optimization: if mainBlock is being added, we only need to make sure two vertices are darkened; not sure about optimizing mainBlock removal
 					}
-				}
 
+				}
 			}
 		}
 	}
-	drawAllQuads() {
+	redraw() {
 
-		this.quadCount = 1
+		this.quadCount = 1 // for development, skip the first quad, so we can know that a quadId of 0 is bad data
 		this.quadHoleList = []
 		this.quadDirtyList = []
-		this.interleavedUpdates = { push: () => {} } // ignore individual quad updates, since we will be writing the entire buffer
-		this.eachPos(blockPos => {
+		this.updateRanges = [] // { push: () => {} } // ignore individual quad updates, since we will be writing the entire buffer in one go
 
-			if (blockPos.isOpaque()) {
+		this.incrementalRedraw = { active: true, coords: [0, 0, 0]}
 
-				Sides.each(side => {
-					
-					var adjacentPos = blockPos.getAdjacentBlockPos(side)
-					if (adjacentPos.isTransparent()) {
-						this.drawFace(blockPos, side)
-					}
-					
-				})
-			}
-			
-		})
-		
-		// because we are not drawing quads facing the void, we must add quads to neighbouring chunks which face our air blocks
+		// because we are not drawing quads facing the void, we must add quads to neighbouring chunks which face our air blocks (also update nearby AO)
 		Sides.each(side => {
 			var neighbourChunk = this.neighboursBySideId[ side.id ]
 			if (neighbourChunk) {
@@ -204,24 +213,31 @@ class Chunk {
 						ourBlockPos.y = coords[ourCoordIndices[1]]
 						ourBlockPos.z = coords[ourCoordIndices[2]]
 						ourBlockPos.recalculateIndex()
+						neighbourBlockPos.x = coords[neighbourCoordIndices[0]]
+						neighbourBlockPos.y = coords[neighbourCoordIndices[1]]
+						neighbourBlockPos.z = coords[neighbourCoordIndices[2]]
+						neighbourBlockPos.recalculateIndex()
 						if (ourBlockPos.isTransparent()) {
-							neighbourBlockPos.x = coords[neighbourCoordIndices[0]]
-							neighbourBlockPos.y = coords[neighbourCoordIndices[1]]
-							neighbourBlockPos.z = coords[neighbourCoordIndices[2]]
-							neighbourBlockPos.recalculateIndex()
 							if (neighbourBlockPos.isOpaque()) {
 								neighbourChunk.drawFace(neighbourBlockPos, side.opposite)
+							}
+						}
+						else {
+							// update AO?
+							if (neighbourBlockPos.isTransparent()) {
+								neighbourChunk.updateAO(neighbourBlockPos, side.opposite)
 							}
 						}
 					}
 				}
 			}
 		})
+
 		
-		this.interleavedUpdates = []
-		//this.interleavedBuffer.updateRange = { offset: 0, count: this.quadCount * 6 * 8 }
+		//this.updateRanges = []
+		//this.interleavedBuffer.updateRanges = { offset: 0, count: this.quadCount * 6 * 8 }
 		//this.interleavedBuffer.needsUpdate = true
-		this.chunkMesh.geometry.setDrawRange(0, 6 * this.quadCount) // 6 vertex indices per quad (i.e. 2 triangles)
+		//this.chunkMesh.geometry.setDrawRange(0, 6 * this.quadCount) // 6 vertex indices per quad (i.e. 2 triangles)
 	}
 	drawFace(blockPos, side) {
 
@@ -233,8 +249,6 @@ class Chunk {
 		var quadId = this.addQuad(blockPos.x, blockPos.y, blockPos.z, side, uvs, brightnesses)
 		//if (temp === 2) { console.log(`drawFace quadId = ${quadId}`) }
 		this.quadIdsByBlockAndSide[blockPos.i * 6 + side.id] = quadId
-		
-		World.markChunkAsDirty(this)
 	}
 	eraseFace(blockPos, side) {
 		var quadId = this.quadIdsByBlockAndSide[ blockPos.i * 6 + side.id ]
@@ -242,8 +256,6 @@ class Chunk {
 		//console.log(`eraseFace quadId = ${quadId}`)
 		this.removeQuad(quadId)
 		this.quadIdsByBlockAndSide[ blockPos.i * 6 + side.id ] = undefined // necessary?
-		
-		World.markChunkAsDirty(this)
 	}
 	redrawFace(blockPos, side) {
 		// todo: avoid buffer updates if the quad doesn't change (n.b. an existing quad may need to be flipped!)
@@ -256,7 +268,7 @@ class Chunk {
 	calculateVertexColours(blockPos, side) {
 		// determine ambient occlusion
 		var brightnesses = [1, 1, 1, 1]
-		var occludedBrightness = 0.6
+		var occludedBrightness = 0.7
 
 		var adjacentPos = blockPos.getAdjacentBlockPos(side)
 
@@ -310,7 +322,7 @@ class Chunk {
 			this.chunkMesh.geometry.setDrawRange(0, this.quadCount * indicesPerFace)
 		}
 		var cursor = quadId * 8 * uniqVertsPerFace
-		this.interleavedUpdates.push({ offset: cursor, count: 8 * uniqVertsPerFace })
+		this.updateRanges.push({ offset: cursor, count: 8 * uniqVertsPerFace })
 
 		for (var i = 0; i < uniqVertsPerFace; i += 1) {
 			var vertexIndex = vertexOrder[i]
@@ -328,24 +340,121 @@ class Chunk {
 	removeQuad(quadId) {
 		this.quadDirtyList.push(quadId) // leave it in the interleavedData for now, in case another quad needs to be drawn this frame!
 	}
-	cleanup() {
+	update() {
+
+		// upgrade dirty quads into holes
 		_.each(this.quadDirtyList, quadId => {
 			var cursor = quadId * 8 * uniqVertsPerFace
-			this.interleavedUpdates.push({ offset: cursor, count: 8 * uniqVertsPerFace })
+			this.updateRanges.push({ offset: cursor, count: 8 * uniqVertsPerFace })
 			for (var i = 0; i < uniqVertsPerFace; i += 1) {
-				for (var j = 0; j < 8; j += 1) {
-					this.interleavedData[ cursor++ ] = 0 // OPTIMIZE: probably only need to set the positions to 0, not UVs or colours
-				}
+				// only need to set the positions to 0, not UVs or colours
+				this.interleavedData[ cursor + 0 ] = 0
+				this.interleavedData[ cursor + 1 ] = 0
+				this.interleavedData[ cursor + 2 ] = 0
+				cursor += 8
 			}
 			this.quadHoleList.push(quadId)
 		})
 		this.quadDirtyList = []
-		//console.log(`this.interleavedUpdates = ${JSON.stringify(this.interleavedUpdates)}`)
 
-		//this.interleavedBuffer.updateRange = this.interleavedUpdates // { offset: 0, count: this.quadCount * 6 * 8 }
-		this.chunkMesh.interleavedBuffer.updateRange = [{ offset: 0, count: this.quadCount * 6 * 8 }]
-		this.chunkMesh.interleavedBuffer.needsUpdate = true
-		this.interleavedUpdates = []
+		//console.log(`this.updateRanges = ${JSON.stringify(this.updateRanges)}`)
+
+		if (this.chunkMesh.bufferIsNew) {
+			this.chunkMesh.interleavedBuffer.updateRanges = []
+			this.chunkMesh.interleavedBuffer.needsUpdate = false
+			this.chunkMesh.bufferIsNew = false
+			return
+		}
+
+		// incremental redraw
+		if (this.incrementalRedraw.active) {
+			for (var incrementalCount = 0; incrementalCount < 256; incrementalCount += 1) {
+
+				var incCoords = this.incrementalRedraw.coords
+				var blockPos = this.getBlockPos(incCoords[0], incCoords[1], incCoords[2])
+
+				if (blockPos.isOpaque()) {
+
+					Sides.each(side => {
+						
+						var adjacentPos = blockPos.getAdjacentBlockPos(side)
+						if (adjacentPos.isTransparent()) {
+							this.drawFace(blockPos, side)
+						}
+						
+					})
+				}
+
+				incCoords[0] += 1
+				if (incCoords[0] === Chunk.sizeX) {
+					incCoords[0] -= Chunk.sizeX
+					incCoords[1] += 1
+					if (incCoords[1] === Chunk.sizeY) {
+						incCoords[1] -= Chunk.sizeY
+						incCoords[2] += 1
+						if (incCoords[2] === Chunk.sizeZ) {
+							this.incrementalRedraw.active = false
+							break
+						}
+					}
+				}
+
+			}
+		}
+
+		if (!this.chunkMesh.interleavedBuffer.__webglBuffer) {
+			console.log("no buffer to write to yet!")
+			return
+		}
+
+
+		var bufferUpdateRanges = []
+		var strategy = "min/max"
+
+		if (strategy === "ENTIRE BUFFER") {
+			bufferUpdateRanges = [{ offset: 0, count: this.quadCount * 6 * 8 }]
+			this.updateRanges = []
+		}
+		else if (strategy === "EACH RANGE") {
+			bufferUpdateRanges = this.updateRanges // { offset: 0, count: this.quadCount * 6 * 8 }
+			this.updateRanges = []
+		}
+		else if (strategy === "min/max") {
+			if (this.updateRanges.length) {
+				var minOffset = Infinity
+				var maxOffset = 0
+				_.each(this.updateRanges, updateRange => {
+					minOffset = Math.min(minOffset, updateRange.offset)
+					maxOffset = Math.max(maxOffset, updateRange.offset + updateRange.count)
+				})
+
+				bufferUpdateRanges = [{ offset: minOffset, count: maxOffset - minOffset }]
+				this.updateRanges = []
+			}
+		}
+		else if (strategy === "N verts per frame") {
+			var maxSize = 6 * 8 * 32
+			if (this.updateRanges.length) {
+				var firstRange = this.updateRanges.pop()
+				if (firstRange.count > maxSize) {
+					this.updateRanges.push({ offset: firstRange.offset + maxSize, count: firstRange.count - maxSize })
+				}
+				bufferUpdateRanges = [{ offset: firstRange.offset, count: Math.min(maxSize, firstRange.count) }]
+				if (firstRange.count > maxSize || this.updateRanges.length) {
+				}
+				//console.log(`${this.toString()} queuing buffer update of size ${Math.min(maxSize, firstRange.count)}`)
+			}
+		}
+
+
+		//console.log(JSON.stringify(bufferUpdateRanges))
+
+		if (bufferUpdateRanges.length > 0) {
+			gl.bindBuffer( gl.ARRAY_BUFFER, this.chunkMesh.interleavedBuffer.__webglBuffer )
+			_.each(bufferUpdateRanges, updateRange => {
+				gl.bufferSubData( gl.ARRAY_BUFFER, updateRange.offset * 4, this.interleavedData.subarray( updateRange.offset, updateRange.offset + updateRange.count ) )
+			})
+		}
 
 	}
 	toString() {

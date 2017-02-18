@@ -1,28 +1,26 @@
-var fps
-var pointerLocked = false
-
-var element = document.body;
-
-var pointerlockchange = function ( event ) {
-	if ( document.pointerLockElement === element || document.mozPointerLockElement === element || document.webkitPointerLockElement === element ) {
-		pointerLocked = true;
-	}
-	else {
-		pointerLocked = false;
-	}
-}
-
-// Hook pointer lock state change events
-document.addEventListener( 'pointerlockchange', pointerlockchange, false );
-document.addEventListener( 'mozpointerlockchange', pointerlockchange, false );
-document.addEventListener( 'webkitpointerlockchange', pointerlockchange, false );
-
-
 var PlayerControls = {
 	init(camera) {
 
-		document.addEventListener( 'click', function ( event ) {
-			if (!pointerLocked) {
+		this.pointerLocked = false
+
+		var element = document.body;
+
+		var pointerlockchange = event => {
+			if ( document.pointerLockElement === element || document.mozPointerLockElement === element || document.webkitPointerLockElement === element ) {
+				this.pointerLocked = true;
+			}
+			else {
+				this.pointerLocked = false;
+			}
+		}
+
+		// Hook pointer lock state change events
+		document.addEventListener( 'pointerlockchange', pointerlockchange, false );
+		document.addEventListener( 'mozpointerlockchange', pointerlockchange, false );
+		document.addEventListener( 'webkitpointerlockchange', pointerlockchange, false );
+
+		document.addEventListener( 'click', event => {
+			if (!this.pointerLocked) {
 				element.requestPointerLock = element.requestPointerLock || element.mozRequestPointerLock || element.webkitRequestPointerLock;
 				element.requestPointerLock();
 			}
@@ -31,19 +29,19 @@ var PlayerControls = {
 			}
 		}, false );
 
-		fps = new THREE.FirstPersonControls( camera );
-		fps.movementSpeed = 10;
-		//fps.lookSpeed     = 0.5;
-		fps.noFly         = false;
-		//fps.lookVertical  = true;
-		fps.activeLook    = false;
+		this.fps = new THREE.FirstPersonControls( camera );
+		this.fps.movementSpeed = 10;
+		//this.fps.lookSpeed     = 0.5;
+		this.fps.noFly         = false;
+		//this.fps.lookVertical  = true;
+		this.fps.activeLook    = false;
 
-		document.addEventListener( 'mousemove', function ( event ) {
+		document.addEventListener( 'mousemove', event => {
 
-			if ( pointerLocked === false ) return;
+			if ( this.pointerLocked === false ) return;
 
-			fps.lon += 0.3 * (event.movementX || event.mozMovementX || event.webkitMovementX || 0);
-			fps.lat -= 0.3 * (event.movementY || event.mozMovementY || event.webkitMovementY || 0);
+			this.fps.lon += 0.3 * (event.movementX || event.mozMovementX || event.webkitMovementX || 0);
+			this.fps.lat -= 0.3 * (event.movementY || event.mozMovementY || event.webkitMovementY || 0);
 
 		}, false );
 
@@ -51,6 +49,6 @@ var PlayerControls = {
 
 	},
 	update(dt) {
-		fps.update(dt)
+		this.fps.update(dt)
 	},
 }

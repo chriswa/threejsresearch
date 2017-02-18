@@ -17485,6 +17485,7 @@
 		function createBuffer( attributeProperties, data, bufferType ) {
 
 			attributeProperties.__webglBuffer = gl.createBuffer();
+			data.__webglBuffer = attributeProperties.__webglBuffer
 			gl.bindBuffer( bufferType, attributeProperties.__webglBuffer );
 
 			var usage = data.dynamic ? gl.DYNAMIC_DRAW : gl.STATIC_DRAW;
@@ -17552,11 +17553,14 @@
 
 			} else if ( data.updateRanges.length === 0 ) {
 
-				console.error( 'THREE.WebGLObjects.updateBuffer: dynamic THREE.BufferAttribute marked as needsUpdate but updateRange.count is 0, ensure you are using set methods or updating manually.' );
+				// there seems to be no way to cancel an update after calling the needsUpdate=true setter, since it increments a version instead of setting a bool...
+				//console.error( 'THREE.WebGLObjects.updateBuffer: dynamic THREE.BufferAttribute marked as needsUpdate but updateRange.count is 0, ensure you are using set methods or updating manually.' );
 
 			} else {
 
 				for (var i = 0; i < data.updateRanges.length; i += 1) {
+					//console.log(`gl.bufferSubData ${data.updateRanges[i].count}`)
+					debugger
 					gl.bufferSubData( bufferType, data.updateRanges[i].offset * data.array.BYTES_PER_ELEMENT,
 									  data.array.subarray( data.updateRanges[i].offset, data.updateRanges[i].offset + data.updateRanges[i].count ) );
 				}

@@ -22,7 +22,7 @@ class BlockType {
 	}
 }
 
-var BlockTypesById = [undefined]
+var BlockTypesById = []
 var BlockTypesByName = {}
 
 function addBlockType(name, tileIndex) {
@@ -33,7 +33,7 @@ function addBlockType(name, tileIndex) {
 	return blockType
 }
 
-
+addBlockType('air', 0)
 addBlockType('stone', 1)
 addBlockType('dirt', 2)
 addBlockType('grass', 3).setSideTile(Sides.TOP, 0).setSideTile(Sides.BOTTOM, 2)

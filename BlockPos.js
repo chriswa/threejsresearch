@@ -7,6 +7,9 @@ class BlockPos {
 		this.recalculateIndex()
 		this.isLoaded = true
 	}
+	clone() {
+		return new BlockPos(this.chunk, this.x, this.y)
+	}
 	recalculateIndex() {
 		this.i = this.z + this.y * Chunk.sizeZ + this.x * Chunk.sizeZ * Chunk.sizeY
 	}
