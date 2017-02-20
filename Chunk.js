@@ -2,7 +2,8 @@ var facesPerCube = 6;
 var uniqVertsPerFace = 4;
 var indicesPerFace = 6;
 var maxVerts = 64 * 1024 // this should be 64k
-var maxQuadsPerMesh = maxVerts / uniqVertsPerFace
+var maxQuadsPerChunk = maxVerts / uniqVertsPerFace
+var maxQuadsPerMesh = 1000
 
 var ChunkBlockDataPool = {
 	pool: [],
@@ -23,32 +24,39 @@ var ChunkMeshPool = {
 		var chunkMesh
 		if (this.pool.length) {
 			chunkMesh = this.pool.pop()
-			chunkMesh.mesh.visible = true
-			chunkMesh.bufferIsNew = false
-			chunkMesh.geometry.setDrawRange(0, 0)
+			chunkMesh.reset()
+			return chunkMesh
 		}
-		else {
-			chunkMesh = {}
-			chunkMesh.bufferIsNew = true
-			chunkMesh.geometry = new THREE.BufferGeometry()
-			chunkMesh.interleavedData = new Float32Array(maxQuadsPerMesh * 8 * 4)
-			chunkMesh.interleavedBuffer = new THREE.InterleavedBuffer(chunkMesh.interleavedData, 3 + 2 + 3)
-			chunkMesh.interleavedBuffer.setDynamic(true)
-			chunkMesh.geometry.addAttribute( 'position', new THREE.InterleavedBufferAttribute( chunkMesh.interleavedBuffer, 3, 0 ) )
-			chunkMesh.geometry.addAttribute( 'uv',       new THREE.InterleavedBufferAttribute( chunkMesh.interleavedBuffer, 2, 3 ) )
-			chunkMesh.geometry.addAttribute( 'color',    new THREE.InterleavedBufferAttribute( chunkMesh.interleavedBuffer, 3, 5 ) )
-			chunkMesh.geometry.setIndex( Chunk.sharedQuadIndexBufferAttribute )
-			var maxSize = Math.max(Chunk.sizeX, Chunk.sizeY, Chunk.sizeZ)
-			chunkMesh.geometry.boundingBox = new THREE.Box3(0, maxSize)
-			chunkMesh.geometry.boundingSphere = new THREE.Sphere(new THREE.Vector3(maxSize/2, maxSize/2, maxSize/2), maxSize * 1.73205080757) // sphere radius to cover cube
-			chunkMesh.mesh = new THREE.Mesh( chunkMesh.geometry, Chunk.material )
-		}
-		return chunkMesh
+		return new ChunkMesh()
 	},
 	release(chunkMesh) {
 		chunkMesh.mesh.visible = false
 		this.pool.push(chunkMesh)
 	},
+}
+
+class ChunkMesh {
+	constructor() {
+		this.bufferIsNew = true
+		this.geometry = new THREE.BufferGeometry()
+		this.interleavedData = new Float32Array(maxQuadsPerMesh * 8 * 4)
+		this.interleavedBuffer = new THREE.InterleavedBuffer(this.interleavedData, 3 + 2 + 3)
+		this.interleavedBuffer.setDynamic(true)
+		this.geometry.addAttribute( 'position', new THREE.InterleavedBufferAttribute( this.interleavedBuffer, 3, 0 ) )
+		this.geometry.addAttribute( 'uv',       new THREE.InterleavedBufferAttribute( this.interleavedBuffer, 2, 3 ) )
+		this.geometry.addAttribute( 'color',    new THREE.InterleavedBufferAttribute( this.interleavedBuffer, 3, 5 ) )
+		this.geometry.setIndex( Chunk.sharedQuadIndexBufferAttribute )
+		var maxSize = Math.max(Chunk.sizeX, Chunk.sizeY, Chunk.sizeZ)
+		this.geometry.boundingBox = new THREE.Box3(0, maxSize)
+		this.geometry.boundingSphere = new THREE.Sphere(new THREE.Vector3(maxSize/2, maxSize/2, maxSize/2), maxSize * 1.73205080757) // sphere radius to cover cube
+		this.mesh = new THREE.Mesh( this.geometry, Chunk.material )
+		this.updateRanges = []
+	}
+	reset() { // from pool
+		this.mesh.visible = true
+		this.bufferIsNew = false
+		this.geometry.setDrawRange(0, 0)
+	}
 }
 
 class Chunk {
@@ -66,18 +74,28 @@ class Chunk {
 		this.quadIdsByBlockAndSide = new Uint16Array(Chunk.sizeX * Chunk.sizeY * Chunk.sizeZ * facesPerCube)
 
 		this.neighboursBySideId = [ undefined, undefined, undefined, undefined, undefined, undefined ]
-		this.chunkMesh = ChunkMeshPool.get()
-		this.interleavedData = this.chunkMesh.interleavedData // optimization
-		this.chunkMesh.mesh.chunk = this // XXX: is this necessary? if so, add comment as to why
+		this.chunkMeshes = []
 	}
 	dispose() {
-		ChunkMeshPool.release(this.chunkMesh)
+		_.each(this.chunkMeshes, chunkMesh => {
+			scene.remove(chunkMesh.mesh)			
+			ChunkMeshPool.release(chunkMesh)
+		})
 		Sides.each(side => {
 			if (this.neighboursBySideId[ side.id ]) {
 				this.neighboursBySideId[ side.id ].neighboursBySideId[ side.opposite.id ] = undefined
 			}
 		})
 		this.neighboursBySideId = undefined
+	}
+	addChunkMesh() {
+		var chunkMesh = ChunkMeshPool.get()
+		this.chunkMeshes.push( chunkMesh )
+		chunkMesh.mesh.position.x = this.cx * Chunk.sizeX
+		chunkMesh.mesh.position.y = this.cy * Chunk.sizeY
+		chunkMesh.mesh.position.z = this.cz * Chunk.sizeZ
+		scene.add( chunkMesh.mesh )
+		return chunkMesh
 	}
 	eachPos(callback) {
 		var blockPos = new BlockPos(this, 0, 0, 0)
@@ -183,11 +201,11 @@ class Chunk {
 		this.quadCount = 1 // for development, skip the first quad, so we can know that a quadId of 0 is bad data
 		this.quadHoleList = []
 		this.quadDirtyList = []
-		this.updateRanges = [] // { push: () => {} } // ignore individual quad updates, since we will be writing the entire buffer in one go
 
+		// queue the majority of the work to occur during update calls
 		this.incrementalRedraw = { active: true, coords: [0, 0, 0]}
 
-		// because we are not drawing quads facing the void, we must add quads to neighbouring chunks which face our air blocks (also update nearby AO)
+		// because we are not drawing quads facing the void, we must also add quads to neighbouring chunks which face our air blocks (also update nearby AO)
 		Sides.each(side => {
 			var neighbourChunk = this.neighboursBySideId[ side.id ]
 			if (neighbourChunk) {
@@ -233,7 +251,6 @@ class Chunk {
 			}
 		})
 
-		
 		//this.updateRanges = []
 		//this.interleavedBuffer.updateRanges = { offset: 0, count: this.quadCount * 6 * 8 }
 		//this.interleavedBuffer.needsUpdate = true
@@ -306,36 +323,45 @@ class Chunk {
 		}
 		var vertexOrder = flipQuad ? [ 1, 2, 3, 0 ] : [ 0, 1, 2, 3 ]
 
-		var quadId
+		var quadId, chunkMesh
 		// prefer to draw over dirty quads, which will need to be updated anyway
 		if (this.quadDirtyList.length) {
 			quadId = this.quadDirtyList.shift()
+			chunkMesh = this.getChunkMeshForQuad(quadId)
 		}
 		// second preference is to fill up holes left by previously cleaned up quads, to avoid expanding our draw range and ultimately running out of space
 		else if (this.quadHoleList.length) {
 			quadId = this.quadHoleList.shift()
+			chunkMesh = this.getChunkMeshForQuad(quadId)
 		}
 		// if there are no dirty quads or holes to fill, append quads to the end and increase the draw range
 		else {
 			quadId = this.quadCount
+			chunkMesh = this.getChunkMeshForQuad(quadId)
+			if (!chunkMesh) {
+				chunkMesh = this.addChunkMesh()
+			}
 			this.quadCount += 1
-			this.chunkMesh.geometry.setDrawRange(0, this.quadCount * indicesPerFace)
+			chunkMesh.geometry.setDrawRange(0, (((this.quadCount - 1) % maxQuadsPerMesh) + 1) * indicesPerFace)
 		}
-		var cursor = quadId * 8 * uniqVertsPerFace
-		this.updateRanges.push({ offset: cursor, count: 8 * uniqVertsPerFace })
+		var cursor = (quadId % maxQuadsPerMesh) * 8 * uniqVertsPerFace
+		chunkMesh.updateRanges.push({ offset: cursor, count: 8 * uniqVertsPerFace })
 
 		for (var i = 0; i < uniqVertsPerFace; i += 1) {
 			var vertexIndex = vertexOrder[i]
-			this.interleavedData[ cursor++ ] = x + side.verts[ vertexIndex * 3 + 0 ]
-			this.interleavedData[ cursor++ ] = y + side.verts[ vertexIndex * 3 + 1 ]
-			this.interleavedData[ cursor++ ] = z + side.verts[ vertexIndex * 3 + 2 ]
-			this.interleavedData[ cursor++ ] = uvs[ vertexIndex * 2 + 0 ]
-			this.interleavedData[ cursor++ ] = uvs[ vertexIndex * 2 + 1 ]
-			this.interleavedData[ cursor++ ] = brightnesses[vertexIndex]
-			this.interleavedData[ cursor++ ] = brightnesses[vertexIndex]
-			this.interleavedData[ cursor++ ] = brightnesses[vertexIndex]
+			chunkMesh.interleavedData[ cursor++ ] = x + side.verts[ vertexIndex * 3 + 0 ]
+			chunkMesh.interleavedData[ cursor++ ] = y + side.verts[ vertexIndex * 3 + 1 ]
+			chunkMesh.interleavedData[ cursor++ ] = z + side.verts[ vertexIndex * 3 + 2 ]
+			chunkMesh.interleavedData[ cursor++ ] = uvs[ vertexIndex * 2 + 0 ]
+			chunkMesh.interleavedData[ cursor++ ] = uvs[ vertexIndex * 2 + 1 ]
+			chunkMesh.interleavedData[ cursor++ ] = brightnesses[vertexIndex]
+			chunkMesh.interleavedData[ cursor++ ] = brightnesses[vertexIndex]
+			chunkMesh.interleavedData[ cursor++ ] = brightnesses[vertexIndex]
 		}
 		return quadId
+	}
+	getChunkMeshForQuad(quadId) {
+		return this.chunkMeshes[ Math.floor( quadId / maxQuadsPerMesh ) ]
 	}
 	removeQuad(quadId) {
 		this.quadDirtyList.push(quadId) // leave it in the interleavedData for now, in case another quad needs to be drawn this frame!
@@ -344,31 +370,23 @@ class Chunk {
 
 		// upgrade dirty quads into holes
 		_.each(this.quadDirtyList, quadId => {
-			var cursor = quadId * 8 * uniqVertsPerFace
-			this.updateRanges.push({ offset: cursor, count: 8 * uniqVertsPerFace })
+			var chunkMesh = this.getChunkMeshForQuad(quadId)
+			var cursor = (quadId % maxQuadsPerMesh) * 8 * uniqVertsPerFace
+			chunkMesh.updateRanges.push({ offset: cursor, count: 8 * uniqVertsPerFace })
 			for (var i = 0; i < uniqVertsPerFace; i += 1) {
 				// only need to set the positions to 0, not UVs or colours
-				this.interleavedData[ cursor + 0 ] = 0
-				this.interleavedData[ cursor + 1 ] = 0
-				this.interleavedData[ cursor + 2 ] = 0
+				chunkMesh.interleavedData[ cursor + 0 ] = 0
+				chunkMesh.interleavedData[ cursor + 1 ] = 0
+				chunkMesh.interleavedData[ cursor + 2 ] = 0
 				cursor += 8
 			}
 			this.quadHoleList.push(quadId)
 		})
 		this.quadDirtyList = []
 
-		//console.log(`this.updateRanges = ${JSON.stringify(this.updateRanges)}`)
-
-		if (this.chunkMesh.bufferIsNew) {
-			this.chunkMesh.interleavedBuffer.updateRanges = []
-			this.chunkMesh.interleavedBuffer.needsUpdate = false
-			this.chunkMesh.bufferIsNew = false
-			return
-		}
-
 		// incremental redraw
 		if (this.incrementalRedraw.active) {
-			for (var incrementalCount = 0; incrementalCount < 256; incrementalCount += 1) {
+			for (var incrementalCount = 0; incrementalCount < 1024; incrementalCount += 1) {
 
 				var incCoords = this.incrementalRedraw.coords
 				var blockPos = this.getBlockPos(incCoords[0], incCoords[1], incCoords[2])
@@ -394,6 +412,9 @@ class Chunk {
 						incCoords[2] += 1
 						if (incCoords[2] === Chunk.sizeZ) {
 							this.incrementalRedraw.active = false
+
+							//console.log(this.quadCount)
+
 							break
 						}
 					}
@@ -402,59 +423,36 @@ class Chunk {
 			}
 		}
 
-		if (!this.chunkMesh.interleavedBuffer.__webglBuffer) {
-			console.log("no buffer to write to yet!")
-			return
-		}
 
 
-		var bufferUpdateRanges = []
-		var strategy = "min/max"
+		_.each(this.chunkMeshes, chunkMesh => {
 
-		if (strategy === "ENTIRE BUFFER") {
-			bufferUpdateRanges = [{ offset: 0, count: this.quadCount * 6 * 8 }]
-			this.updateRanges = []
-		}
-		else if (strategy === "EACH RANGE") {
-			bufferUpdateRanges = this.updateRanges // { offset: 0, count: this.quadCount * 6 * 8 }
-			this.updateRanges = []
-		}
-		else if (strategy === "min/max") {
-			if (this.updateRanges.length) {
+			if (!chunkMesh.interleavedBuffer.__webglBuffer) {
+				//console.log("no buffer to write to yet!")
+				return
+			}
+
+			var bufferUpdateRanges = []
+
+			if (chunkMesh.updateRanges.length) {
 				var minOffset = Infinity
 				var maxOffset = 0
-				_.each(this.updateRanges, updateRange => {
+				_.each(chunkMesh.updateRanges, updateRange => {
 					minOffset = Math.min(minOffset, updateRange.offset)
 					maxOffset = Math.max(maxOffset, updateRange.offset + updateRange.count)
 				})
 
 				bufferUpdateRanges = [{ offset: minOffset, count: maxOffset - minOffset }]
-				this.updateRanges = []
+				chunkMesh.updateRanges = []
 			}
-		}
-		else if (strategy === "N verts per frame") {
-			var maxSize = 6 * 8 * 32
-			if (this.updateRanges.length) {
-				var firstRange = this.updateRanges.pop()
-				if (firstRange.count > maxSize) {
-					this.updateRanges.push({ offset: firstRange.offset + maxSize, count: firstRange.count - maxSize })
-				}
-				bufferUpdateRanges = [{ offset: firstRange.offset, count: Math.min(maxSize, firstRange.count) }]
-				if (firstRange.count > maxSize || this.updateRanges.length) {
-				}
-				//console.log(`${this.toString()} queuing buffer update of size ${Math.min(maxSize, firstRange.count)}`)
+
+			if (bufferUpdateRanges.length > 0) {
+				gl.bindBuffer( gl.ARRAY_BUFFER, chunkMesh.interleavedBuffer.__webglBuffer )
+				_.each(bufferUpdateRanges, updateRange => {
+					gl.bufferSubData( gl.ARRAY_BUFFER, updateRange.offset * 4, chunkMesh.interleavedData.subarray( updateRange.offset, updateRange.offset + updateRange.count ) )
+				})
 			}
-		}
-
-
-		//console.log(JSON.stringify(bufferUpdateRanges))
-
-		if (bufferUpdateRanges.length > 0) {
-			gl.bindBuffer( gl.ARRAY_BUFFER, this.chunkMesh.interleavedBuffer.__webglBuffer )
-			_.each(bufferUpdateRanges, updateRange => {
-				gl.bufferSubData( gl.ARRAY_BUFFER, updateRange.offset * 4, this.interleavedData.subarray( updateRange.offset, updateRange.offset + updateRange.count ) )
-			})
-		}
+		})
 
 	}
 	toString() {
@@ -466,8 +464,8 @@ Chunk.sizeX = 16
 Chunk.sizeY = 16
 Chunk.sizeZ = 16
 
-var indexArray = new Uint32Array(maxQuadsPerMesh * indicesPerFace)
-for (var quadIndex = 0, indexIndex = 0, vertIndex = 0; quadIndex < maxQuadsPerMesh; quadIndex += 1, indexIndex += 6, vertIndex += 4) {
+var indexArray = new Uint32Array(maxQuadsPerChunk * indicesPerFace)
+for (var quadIndex = 0, indexIndex = 0, vertIndex = 0; quadIndex < maxQuadsPerChunk; quadIndex += 1, indexIndex += 6, vertIndex += 4) {
 	indexArray[indexIndex + 0] = vertIndex + 0
 	indexArray[indexIndex + 1] = vertIndex + 1
 	indexArray[indexIndex + 2] = vertIndex + 2

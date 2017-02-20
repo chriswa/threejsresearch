@@ -74,24 +74,10 @@
 				if (event.button === 0) {
 					voxelRaycast.blockPos.setBlockData(0)
 				}
-				else if (event.button === 2) {
+				else {
 					voxelRaycast.blockPos.getAdjacentBlockPos(voxelRaycast.side).setBlockData(BlockTypesByName.planks.id)
 				}
-				else if (event.button === 1) {
-					//var explosionRange = 2
-					//for (var dx = -explosionRange; dx <= explosionRange; dx += 1) {
-					//	for (var dy = -explosionRange; dy <= explosionRange; dy += 1) {
-					//		for (var dz = -explosionRange; dz <= explosionRange; dz += 1) {
-					//			if (Math.sqrt(dx*dx + dy*dy + dz*dz) > explosionRange + 0.5	) { continue }
-					//			var affectedBlockPos = voxelRaycast.blockPos.clone()
-					//			affectedBlockPos.add(dx, dy, dz)
-					//			if (affectedBlockPos.isLoaded) {
-					//				affectedBlockPos.setBlockData(0)
-					//			}
-					//		}
-					//	}
-					//}
-				}
+
 			})
 
 			loader.load('minecraft15.png', texture => { // e.g. loading multiple textures with promise.all: http://stackoverflow.com/questions/7919516/using-textures-in-three-js

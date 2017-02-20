@@ -16,10 +16,6 @@ var World = {
 	},
 	addChunk(cx, cy, cz) {
 		var chunk = new Chunk(cx, cy, cz)
-		chunk.chunkMesh.mesh.position.x = cx * Chunk.sizeX
-		chunk.chunkMesh.mesh.position.y = cy * Chunk.sizeY
-		chunk.chunkMesh.mesh.position.z = cz * Chunk.sizeZ
-		scene.add( chunk.chunkMesh.mesh );
 
 		this.chunks[ chunk.id ] = chunk
 
@@ -35,7 +31,6 @@ var World = {
 		return chunk
 	},
 	removeChunk(chunk) {
-		scene.remove( chunk.mesh )
 		chunk.dispose()
 		delete(this.chunks[ chunk.id ])
 	},
@@ -54,7 +49,7 @@ var World = {
 		var chunksToLoad = []
 
 		var chunkLoadCount = 0
-		var chunkRange = 3
+		var chunkRange = 5
 		for (var dcx = -chunkRange; dcx <= chunkRange; dcx += 1) {
 			for (var dcy = -chunkRange; dcy <= chunkRange; dcy += 1) {
 				for (var dcz = -chunkRange; dcz <= chunkRange; dcz += 1) {
