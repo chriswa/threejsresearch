@@ -1,3 +1,21 @@
+var chunkGenWorker = new Worker('workerChunkGen.js')
+var chunkGenWorkerCallbacks = {}
+var chunkGenWorkerCallbackNextId = 0
+chunkGenWorker.addEventListener('message', e => {
+	var callbackId = e.data.callbackId
+	var callback = chunkGenWorkerCallbacks[callbackId]
+	if (callback) {
+		callback(e.data.payload)
+	}
+})
+var ChunkGenWorker = {
+	start(blockData, cx, cy, cz, callback) {
+		var callbackId = chunkGenWorkerCallbackNextId++
+		chunkGenWorkerCallbacks[callbackId] = callback
+		chunkGenWorker.postMessage({ callbackId, cx, cy, cz, blockData }, [ blockData.buffer ])
+	}
+}
+
 var World = {
 	chunks: {},
 	getBlockPosFromWorldPoint(p) {
@@ -14,23 +32,29 @@ var World = {
 	getChunkId(cx, cy, cz) {
 		return cx + ',' + cy + ',' + cz
 	},
-	addChunk(cx, cy, cz) {
-		var chunk = new Chunk(cx, cy, cz)
+	queueChunkLoad(cx, cy, cz) {
+		var blockData = ChunkBlockDataPool.acquire()
+		ChunkGenWorker.start(blockData, cx, cy, cz, blockData => {
 
-		this.chunks[ chunk.id ] = chunk
+			var chunk = new Chunk(cx, cy, cz, blockData)
 
-		for (var sideId = 0; sideId < 6; sideId += 1) {
-			var side = SidesById[sideId]
-			var neighbour = this.chunks[ this.getChunkId(cx + side.dx, cy + side.dy, cz + side.dz) ]
-			if (neighbour) {
-				chunk.attachChunkNeighbour(side, neighbour)
-				neighbour.attachChunkNeighbour(side.opposite, chunk)
+			this.chunks[ chunk.id ] = chunk
+
+			for (var sideId = 0; sideId < 6; sideId += 1) {
+				var side = SidesById[sideId]
+				var neighbour = this.chunks[ this.getChunkId(cx + side.dx, cy + side.dy, cz + side.dz) ]
+				if (neighbour) {
+					chunk.attachChunkNeighbour(side, neighbour)
+					neighbour.attachChunkNeighbour(side.opposite, chunk)
+				}
 			}
-		}
 
-		return chunk
+			chunk.redraw()
+
+		})
 	},
 	removeChunk(chunk) {
+		ChunkBlockDataPool.release(chunk.blockData)
 		chunk.dispose()
 		delete(this.chunks[ chunk.id ])
 	},
@@ -38,12 +62,22 @@ var World = {
 		_.each(this.chunks, chunk => chunk.update())
 	},
 	build() {
-		noise.seed(0)
-		this.loadChunk(0, 0, 0)
-		var centerChunk = this.chunks[ this.getChunkId(0, 0, 0) ]
-		this.updateNearbyChunks(centerChunk)
+		this.loadAndUnloadChunksNearPoint(new THREE.Vector3(0, 0, 0))
 	},
-	updateNearbyChunks(centerChunk) {
+	loadAndUnloadChunksNearPoint(p) {
+		var ix = Math.floor(p.x)
+		var iy = Math.ceil(p.y)
+		var iz = Math.floor(p.z)
+		var centerCX = Math.floor(ix / Chunk.sizeX)
+		var centerCY = Math.floor(iy / Chunk.sizeY)
+		var centerCZ = Math.floor(iz / Chunk.sizeZ)
+		var centerId = this.getChunkId(centerCX, centerCY, centerCZ)
+		if (centerId === this.lastCenterId) {
+			return
+		}
+		this.lastCenterId = centerId
+
+
 		_.each(this.chunks, chunk => chunk.outOfRange = true )
 
 		var chunksToLoad = []
@@ -55,9 +89,9 @@ var World = {
 				for (var dcz = -chunkRange; dcz <= chunkRange; dcz += 1) {
 					if (Math.sqrt(dcx*dcx + dcy*dcy + dcz*dcz) > chunkRange + 0.5) { continue }
 
-					var cx = centerChunk.cx + dcx
-					var cy = centerChunk.cy + dcy
-					var cz = centerChunk.cz + dcz
+					var cx = centerCX + dcx
+					var cy = centerCY + dcy
+					var cz = centerCZ + dcz
 
 					var alreadyLoadedChunk = this.chunks[this.getChunkId(cx, cy, cz)]
 					if (alreadyLoadedChunk) {
@@ -78,47 +112,8 @@ var World = {
 		})
 		_.each(chunksToRemove, chunk => this.removeChunk(chunk))
 		_.each(chunksToLoad, coords => {
-			this.loadChunk(coords[0], coords[1], coords[2]) // cx, cy, cz
+			this.queueChunkLoad(coords[0], coords[1], coords[2]) // cx, cy, cz
 		})
-	},
-	loadChunk(cx, cy, cz) {
-		var chunk = World.addChunk(cx, cy, cz)
-
-		var chunkBlockData = chunk.blockData
-		for (var x = 0, i = 0; x < Chunk.sizeX; x += 1) {
-			for (var y = 0; y < Chunk.sizeY; y += 1) {
-				for (var z = 0; z < Chunk.sizeZ; z += 1, i += 1) {
-					
-					var sampleX = x + cx * Chunk.sizeX
-					var sampleY = y + cy * Chunk.sizeY
-					var sampleZ = z + cz * Chunk.sizeZ
-
-					var blockData = 0
-
-					if (sampleY < -6) {
-							blockData = BlockTypesByName.stone.id
-					}
-					else if (sampleY > 12) {
-							blockData = BlockTypesByName.air.id
-					}
-					else {
-						if (noise.simplex3(sampleX / 20, sampleY / 50, sampleZ / 20) > sampleY / 5) {
-							blockData = BlockTypesByName.dirt.id
-						}
-						if (noise.simplex3((sampleX + 874356) / 10, sampleY / 50, (sampleZ + 874356) / 10) > ((sampleY + 0) / 10)) {
-							blockData = BlockTypesByName.stone.id
-						}
-					}
-					
-					//if (cx === 0) { blockData = 0 }
-
-					//isDirt = sampleY < 3
-					chunkBlockData[i] = blockData;
-				}
-			}
-		}
-
-		chunk.redraw()
 	},
 	raycast(ray, max_d) { // ray.direction must be normalized // https://github.com/andyhall/fast-voxel-raycast/
 		var origin = ray.origin

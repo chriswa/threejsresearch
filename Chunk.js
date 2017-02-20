@@ -7,20 +7,34 @@ var maxQuadsPerMesh = 1000
 
 var ChunkBlockDataPool = {
 	pool: [],
-	get() {
+	acquire() {
 		if (this.pool.length) {
 			return this.pool.pop()
 		}
 		return new Uint16Array( Chunk.sizeX * Chunk.sizeY * Chunk.sizeZ )
 	},
-	release(blockData) {
-		this.pool.push(blockData)
+	release(obj) {
+		this.pool.push(obj)
+	},
+}
+
+var QuadIdsByBlockAndSidePool = {
+	pool: [],
+	acquire() {
+		if (this.pool.length) {
+			return this.pool.pop()
+		}
+		return new Uint16Array( Chunk.sizeX * Chunk.sizeY * Chunk.sizeZ * facesPerCube )
+	},
+	release(obj) {
+		obj.fill(0) // reset to 0 for next user
+		this.pool.push(obj)
 	},
 }
 
 var ChunkMeshPool = {
 	pool: [],
-	get() {
+	acquire() {
 		var chunkMesh
 		if (this.pool.length) {
 			chunkMesh = this.pool.pop()
@@ -60,8 +74,8 @@ class ChunkMesh {
 }
 
 class Chunk {
-	constructor(cx, cy, cz) {
-		this.blockData = ChunkBlockDataPool.get()
+	constructor(cx, cy, cz, blockData) {
+		this.blockData = blockData
 		this.cx = cx
 		this.cy = cy
 		this.cz = cz
@@ -71,16 +85,22 @@ class Chunk {
 			Chunk.material = new THREE.MeshBasicMaterial( { map: mainTexture, vertexColors: THREE.VertexColors, wireframe: false } )
 		}
 
-		this.quadIdsByBlockAndSide = new Uint16Array(Chunk.sizeX * Chunk.sizeY * Chunk.sizeZ * facesPerCube)
+		this.quadIdsByBlockAndSide = QuadIdsByBlockAndSidePool.acquire()
 
 		this.neighboursBySideId = [ undefined, undefined, undefined, undefined, undefined, undefined ]
 		this.chunkMeshes = []
+		this.quadCount = 1 // for development, skip the first quad, so we can know that a quadId of 0 is bad data
+		this.quadHoleList = []
+		this.quadDirtyList = []
+
+		this.incrementalRedraw = { active: false, coords: [0, 0, 0] }
 	}
 	dispose() {
 		_.each(this.chunkMeshes, chunkMesh => {
 			scene.remove(chunkMesh.mesh)			
 			ChunkMeshPool.release(chunkMesh)
 		})
+		QuadIdsByBlockAndSidePool.release(this.quadIdsByBlockAndSide)
 		Sides.each(side => {
 			if (this.neighboursBySideId[ side.id ]) {
 				this.neighboursBySideId[ side.id ].neighboursBySideId[ side.opposite.id ] = undefined
@@ -89,7 +109,7 @@ class Chunk {
 		this.neighboursBySideId = undefined
 	}
 	addChunkMesh() {
-		var chunkMesh = ChunkMeshPool.get()
+		var chunkMesh = ChunkMeshPool.acquire()
 		this.chunkMeshes.push( chunkMesh )
 		chunkMesh.mesh.position.x = this.cx * Chunk.sizeX
 		chunkMesh.mesh.position.y = this.cy * Chunk.sizeY
@@ -188,8 +208,10 @@ class Chunk {
 					var tangentTangentSide = tangent.tangents[tangentTangentIndex]
 
 					var cornerBlockPos = edgeBlockPos.getAdjacentBlockPos(tangentTangentSide)
+					if (!cornerBlockPos.isLoaded) { continue }
+
 					if (cornerBlockPos.isOpaque()) {
-						cornerBlockPos.chunk.redrawFace(cornerBlockPos, tangentTangentSide.opposite)  // potential optimization: if mainBlock is being added, we only need to make sure two vertices are darkened; not sure about optimizing mainBlock removal
+						cornerBlockPos.chunk.redrawFace(cornerBlockPos, tangentTangentSide.opposite)
 					}
 
 				}
@@ -197,10 +219,6 @@ class Chunk {
 		}
 	}
 	redraw() {
-
-		this.quadCount = 1 // for development, skip the first quad, so we can know that a quadId of 0 is bad data
-		this.quadHoleList = []
-		this.quadDirtyList = []
 
 		// queue the majority of the work to occur during update calls
 		this.incrementalRedraw = { active: true, coords: [0, 0, 0]}
@@ -322,7 +340,6 @@ class Chunk {
 			flipQuad = true
 		}
 		var vertexOrder = flipQuad ? [ 1, 2, 3, 0 ] : [ 0, 1, 2, 3 ]
-
 		var quadId, chunkMesh
 		// prefer to draw over dirty quads, which will need to be updated anyway
 		if (this.quadDirtyList.length) {
@@ -386,7 +403,7 @@ class Chunk {
 
 		// incremental redraw
 		if (this.incrementalRedraw.active) {
-			for (var incrementalCount = 0; incrementalCount < 1024; incrementalCount += 1) {
+			for (var incrementalCount = 0; incrementalCount < 64; incrementalCount += 1) {
 
 				var incCoords = this.incrementalRedraw.coords
 				var blockPos = this.getBlockPos(incCoords[0], incCoords[1], incCoords[2])

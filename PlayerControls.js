@@ -40,8 +40,8 @@ var PlayerControls = {
 
 			if ( this.pointerLocked === false ) return;
 
-			this.fps.lon += 0.3 * (event.movementX || event.mozMovementX || event.webkitMovementX || 0);
-			this.fps.lat -= 0.3 * (event.movementY || event.mozMovementY || event.webkitMovementY || 0);
+			this.fps.lon += 0.2 * (event.movementX || event.mozMovementX || event.webkitMovementX || 0);
+			this.fps.lat -= 0.2 * (event.movementY || event.mozMovementY || event.webkitMovementY || 0);
 
 		}, false );
 
