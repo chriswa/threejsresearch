@@ -18,6 +18,7 @@ var ChunkGenWorker = {
 
 var World = {
 	chunks: {},
+	chunksQueued: {},
 	getBlockPosFromWorldPoint(p) {
 		var ix = Math.floor(p.x)
 		var iy = Math.ceil(p.y)
@@ -33,8 +34,12 @@ var World = {
 		return cx + ',' + cy + ',' + cz
 	},
 	queueChunkLoad(cx, cy, cz) {
+		var chunkId = this.getChunkId(cx, cy, cz)
+		this.chunksQueued[chunkId] = true
 		var blockData = ChunkBlockDataPool.acquire()
 		ChunkGenWorker.start(blockData, cx, cy, cz, blockData => {
+
+			delete(this.chunksQueued[chunkId])
 
 			var chunk = new Chunk(cx, cy, cz, blockData)
 
@@ -83,7 +88,7 @@ var World = {
 		var chunksToLoad = []
 
 		var chunkLoadCount = 0
-		var chunkRange = 5
+		var chunkRange = 8
 		for (var dcx = -chunkRange; dcx <= chunkRange; dcx += 1) {
 			for (var dcy = -chunkRange; dcy <= chunkRange; dcy += 1) {
 				for (var dcz = -chunkRange; dcz <= chunkRange; dcz += 1) {
@@ -92,8 +97,13 @@ var World = {
 					var cx = centerCX + dcx
 					var cy = centerCY + dcy
 					var cz = centerCZ + dcz
+					var targetChunkId = this.getChunkId(cx, cy, cz)
 
-					var alreadyLoadedChunk = this.chunks[this.getChunkId(cx, cy, cz)]
+					if (this.chunksQueued[targetChunkId]) {
+						continue
+					}
+
+					var alreadyLoadedChunk = this.chunks[targetChunkId]
 					if (alreadyLoadedChunk) {
 						alreadyLoadedChunk.outOfRange = false
 						continue

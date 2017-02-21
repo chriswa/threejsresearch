@@ -18,7 +18,6 @@
 		<script src="stats.js"></script>
 		<script src="perlin.js"></script>
 		<script src="three.js"></script>
-		<script src="SkyShader.js"></script>
 		<script src="FirstPersonControls.js"></script>
 		<script src="PlayerControls.js"></script>
 		<script src="Chunk.js"></script>
@@ -31,12 +30,10 @@
 			stats.fps = new Stats()
 			stats.fps.showPanel(0)
 			stats.fps.domElement.style.position = 'absolute'
-			stats.fps.domElement.style.top = '5px'
 			document.body.appendChild( stats.fps.domElement )
 			stats.elapsed = new Stats()
 			stats.elapsed.showPanel(1)
 			stats.elapsed.domElement.style.position = 'absolute'
-			stats.elapsed.domElement.style.top = '5px'
 			stats.elapsed.domElement.style.left = '80px'
 			document.body.appendChild( stats.elapsed.domElement )
 

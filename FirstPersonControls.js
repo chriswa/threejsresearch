@@ -236,7 +236,7 @@ THREE.FirstPersonControls = function ( object, domElement ) {
 		this.lon += this.mouseX * actualLookSpeed;
 		if ( this.lookVertical ) this.lat -= this.mouseY * actualLookSpeed * verticalLookRatio;
 
-		this.lat = Math.max( - 85, Math.min( 85, this.lat ) );
+		this.lat = Math.max( - 89.99, Math.min( 89.99, this.lat ) );
 		this.phi = THREE.Math.degToRad( 90 - this.lat );
 
 		this.theta = THREE.Math.degToRad( this.lon );
