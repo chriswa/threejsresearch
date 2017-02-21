@@ -74,12 +74,10 @@ class ChunkMesh {
 }
 
 class Chunk {
-	constructor(cx, cy, cz, blockData) {
+	constructor(chunkPos, blockData) {
 		this.blockData = blockData
-		this.cx = cx
-		this.cy = cy
-		this.cz = cz
-		this.id = [cx, cy, cz].join(',')
+		this.chunkPos = chunkPos
+		this.id = World.getChunkId(chunkPos)
 
 		if (!Chunk.material) {
 			Chunk.material = new THREE.MeshBasicMaterial( { map: mainTexture, vertexColors: THREE.VertexColors, wireframe: false } )
@@ -111,9 +109,7 @@ class Chunk {
 	addChunkMesh() {
 		var chunkMesh = ChunkMeshPool.acquire()
 		this.chunkMeshes.push( chunkMesh )
-		chunkMesh.mesh.position.x = this.cx * Chunk.sizeX
-		chunkMesh.mesh.position.y = this.cy * Chunk.sizeY
-		chunkMesh.mesh.position.z = this.cz * Chunk.sizeZ
+		chunkMesh.mesh.position.copy(this.chunkPos).multiplyScalar(Chunk.sizeX)
 		scene.add( chunkMesh.mesh )
 		return chunkMesh
 	}

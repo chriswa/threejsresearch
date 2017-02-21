@@ -14,7 +14,7 @@ class BlockPos {
 		this.i = this.z + this.y * Chunk.sizeZ + this.x * Chunk.sizeZ * Chunk.sizeY
 	}
 	getWorldPoint() {
-		return new THREE.Vector3( this.chunk.cx * Chunk.sizeX + this.x, this.chunk.cy * Chunk.sizeY + this.y, this.chunk.cz * Chunk.sizeZ + this.z )
+		return new THREE.Vector3( this.chunk.chunkPos.x * Chunk.sizeX + this.x, this.chunk.chunkPos.y * Chunk.sizeY + this.y, this.chunk.chunkPos.z * Chunk.sizeZ + this.z )
 	}
 	getBlockData() {
 		return this.chunk.blockData[this.i]

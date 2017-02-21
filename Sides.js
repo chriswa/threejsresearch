@@ -14,6 +14,10 @@ var Sides = {
 	WEST:   W,
 }
 
+_.each(Sides, side => {
+	side.deltaVector3 = new THREE.Vector3( side.dx, side.dy, side.dz )
+})
+
 T.tangents = [ { side: N, tangents: [ E, W ] }, { side: E, tangents: [ S, N ] }, { side: S, tangents: [ W, E ] }, { side: W, tangents: [ N, S ]  } ]
 B.tangents = [ { side: S, tangents: [ W, E ] }, { side: E, tangents: [ S, N ] }, { side: N, tangents: [ E, W ] }, { side: W, tangents: [ N, S ]  } ]
 N.tangents = [ { side: E, tangents: [ T, B ] }, { side: T, tangents: [ E, W ] }, { side: W, tangents: [ B, T ] }, { side: B, tangents: [ W, E ]  } ]

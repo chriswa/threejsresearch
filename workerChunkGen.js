@@ -4,7 +4,7 @@
 // }, false);
 // worker.postMessage({'cmd': 'start', 'msg': 'Hi'}); // Start the worker.
 
-importScripts('perlin.js', 'three.js', 'Chunk.js', 'Sides.js', 'BlockTypes.js')
+importScripts('lodash.js', 'perlin.js', 'three.js', 'Chunk.js', 'Sides.js', 'BlockTypes.js')
 
 
 noise.seed(2)

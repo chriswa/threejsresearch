@@ -9,10 +9,10 @@ chunkGenWorker.addEventListener('message', e => {
 	}
 })
 var ChunkGenWorker = {
-	start(blockData, cx, cy, cz, callback) {
+	start(blockData, chunkPos, callback) {
 		var callbackId = chunkGenWorkerCallbackNextId++
 		chunkGenWorkerCallbacks[callbackId] = callback
-		chunkGenWorker.postMessage({ callbackId, cx, cy, cz, blockData }, [ blockData.buffer ])
+		chunkGenWorker.postMessage({ callbackId, cx: chunkPos.x, cy: chunkPos.y, cz: chunkPos.z, blockData }, [ blockData.buffer ]) // transfer with "Transferable Objects"
 	}
 }
 
@@ -26,28 +26,32 @@ var World = {
 		var cx = Math.floor(ix / Chunk.sizeX)
 		var cy = Math.floor(iy / Chunk.sizeY)
 		var cz = Math.floor(iz / Chunk.sizeZ)
-		var chunk = this.chunks[ this.getChunkId(cx, cy, cz) ]
+		var chunk = this.chunks[ this.getChunkIdFromCoords(cx, cy, cz) ]
 		if (!chunk) { return BlockPos.badPos }
 		return chunk.getBlockPos(ix - cx * Chunk.sizeX, iy - cy * Chunk.sizeY, iz - cz * Chunk.sizeZ)
 	},
-	getChunkId(cx, cy, cz) {
+	getChunkId(chunkPos) {
+		return chunkPos.x + ',' + chunkPos.y + ',' + chunkPos.z
+	},
+	getChunkIdFromCoords(cx, cy, cz) {
 		return cx + ',' + cy + ',' + cz
 	},
-	queueChunkLoad(cx, cy, cz) {
-		var chunkId = this.getChunkId(cx, cy, cz)
+	queueChunkLoad(chunkPos) {
+		var chunkId = this.getChunkId(chunkPos)
 		this.chunksQueued[chunkId] = true
 		var blockData = ChunkBlockDataPool.acquire()
-		ChunkGenWorker.start(blockData, cx, cy, cz, blockData => {
+		ChunkGenWorker.start(blockData, chunkPos, blockData => {
 
 			delete(this.chunksQueued[chunkId])
 
-			var chunk = new Chunk(cx, cy, cz, blockData)
+			var chunk = new Chunk(chunkPos, blockData)
 
 			this.chunks[ chunk.id ] = chunk
 
 			for (var sideId = 0; sideId < 6; sideId += 1) {
 				var side = SidesById[sideId]
-				var neighbour = this.chunks[ this.getChunkId(cx + side.dx, cy + side.dy, cz + side.dz) ]
+				var neighbourChunkPos = chunkPos.clone().add(side.deltaVector3)
+				var neighbour = this.chunks[ this.getChunkId(neighbourChunkPos) ]
 				if (neighbour) {
 					chunk.attachChunkNeighbour(side, neighbour)
 					neighbour.attachChunkNeighbour(side.opposite, chunk)
@@ -76,7 +80,7 @@ var World = {
 		var centerCX = Math.floor(ix / Chunk.sizeX)
 		var centerCY = Math.floor(iy / Chunk.sizeY)
 		var centerCZ = Math.floor(iz / Chunk.sizeZ)
-		var centerId = this.getChunkId(centerCX, centerCY, centerCZ)
+		var centerId = this.getChunkIdFromCoords(centerCX, centerCY, centerCZ)
 		if (centerId === this.lastCenterId) {
 			return
 		}
@@ -89,15 +93,14 @@ var World = {
 
 		var chunkLoadCount = 0
 		var chunkRange = 8
+		var chunkPos = new THREE.Vector3()
 		for (var dcx = -chunkRange; dcx <= chunkRange; dcx += 1) {
 			for (var dcy = -chunkRange; dcy <= chunkRange; dcy += 1) {
 				for (var dcz = -chunkRange; dcz <= chunkRange; dcz += 1) {
 					if (Math.sqrt(dcx*dcx + dcy*dcy + dcz*dcz) > chunkRange + 0.5) { continue }
 
-					var cx = centerCX + dcx
-					var cy = centerCY + dcy
-					var cz = centerCZ + dcz
-					var targetChunkId = this.getChunkId(cx, cy, cz)
+					chunkPos.set(centerCX + dcx, centerCY + dcy, centerCZ + dcz)
+					var targetChunkId = this.getChunkId(chunkPos)
 
 					if (this.chunksQueued[targetChunkId]) {
 						continue
@@ -109,7 +112,7 @@ var World = {
 						continue
 					}
 
-					chunksToLoad.push([cx, cy, cz])
+					chunksToLoad.push(chunkPos.clone())
 
 				}
 			}
@@ -121,8 +124,8 @@ var World = {
 			}
 		})
 		_.each(chunksToRemove, chunk => this.removeChunk(chunk))
-		_.each(chunksToLoad, coords => {
-			this.queueChunkLoad(coords[0], coords[1], coords[2]) // cx, cy, cz
+		_.each(chunksToLoad, chunkPos => {
+			this.queueChunkLoad(chunkPos)
 		})
 	},
 	raycast(ray, max_d) { // ray.direction must be normalized // https://github.com/andyhall/fast-voxel-raycast/
