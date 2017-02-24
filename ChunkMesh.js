@@ -48,8 +48,8 @@ class ChunkMesh {
 }
 
 class ChunkMeshManager {
-	constructor(pos) {
-		this.pos = pos
+	constructor(parentObject3d) {
+		this.parentObject3d = parentObject3d
 		this.chunkMeshes = []
 		this.quadCount = 1 // for development, skip the first quad, so we can know that a quadId of 0 is bad data
 		this.quadHoleList = []
@@ -57,15 +57,13 @@ class ChunkMeshManager {
 	}
 	dispose() {
 		_.each(this.chunkMeshes, chunkMesh => {
-			scene.remove(chunkMesh.mesh)
 			ChunkMeshPool.release(chunkMesh)
 		})
 	}
 	addChunkMesh() {
 		var chunkMesh = ChunkMeshPool.acquire()
 		this.chunkMeshes.push( chunkMesh )
-		chunkMesh.mesh.position.copy(this.pos)
-		scene.add( chunkMesh.mesh )
+		this.parentObject3d.add( chunkMesh.mesh )
 		return chunkMesh
 	}
 	getChunkMeshForQuad(quadId) {

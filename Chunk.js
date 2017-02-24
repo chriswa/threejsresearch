@@ -1,3 +1,19 @@
+class ChunkOutline {
+	constructor(parentObject3d) {
+		var chunkOutlineVerts = [ 0,0,0,  0,0,1,  0,1,1,  1,1,1,  1,1,0,  0,1,0,  0,0,0,  1,0,0,  1,0,1,  0,0,1,  0,1,1,  0,1,0,  1,1,0,  1,0,0,  1,0,1,  1,1,1 ]
+		for (var i = 0; i < chunkOutlineVerts.length; i += 1) {
+			chunkOutlineVerts[i] *= Chunk.size
+		}
+		var chunkOutlineGeometry = new THREE.BufferGeometry()
+		chunkOutlineGeometry.addAttribute( 'position', new THREE.BufferAttribute( new Float32Array(chunkOutlineVerts), 3 ) )
+		var chunkOutlineMaterial = new THREE.LineBasicMaterial( { color: 0x00ffff, linewidth: 1, transparent: true } )
+		this.object = new THREE.Line( chunkOutlineGeometry, chunkOutlineMaterial )
+		parentObject3d.add(this.object)
+	}
+}
+
+
+
 var ChunkBlockDataPool = {
 	pool: [],
 	acquire() {
@@ -28,35 +44,29 @@ var QuadIdsByBlockAndSidePool = {
 class Chunk {
 	constructor(chunkPos, blockData) {
 		this.blockData = blockData
-		this.chunkPos = chunkPos
 		this.id = World.getChunkId(chunkPos)
+		this.chunkPos = chunkPos
+		this.object3d = new THREE.Object3D()
+		this.object3d.position.copy(this.chunkPos).multiplyScalar(Chunk.size)
+		scene.add(this.object3d)
 
 		this.quadIdsByBlockAndSide = QuadIdsByBlockAndSidePool.acquire()
 
 		this.neighboursBySideId = [ undefined, undefined, undefined, undefined, undefined, undefined ]
 
-		this.chunkMeshManager = new ChunkMeshManager(this.chunkPos.clone().multiplyScalar(Chunk.size))
+		this.chunkMeshManager = new ChunkMeshManager(this.object3d)
 
 
 		// queue the majority of the work to occur during update calls
 		this.incrementalRedraw = { active: true, coords: [0, 0, 0]}
 
 		// chunk outline
-		var chunkOutlineVerts = [ 0,0,0,  0,0,1,  0,1,1,  1,1,1,  1,1,0,  0,1,0,  0,0,0,  1,0,0,  1,0,1,  0,0,1,  0,1,1,  0,1,0,  1,1,0,  1,0,0,  1,0,1,  1,1,1 ]
-		for (var i = 0; i < chunkOutlineVerts.length; i += 1) {
-			chunkOutlineVerts[i] *= Chunk.size
-		}
-		var chunkOutlineGeometry = new THREE.BufferGeometry()
-		chunkOutlineGeometry.addAttribute( 'position', new THREE.BufferAttribute( new Float32Array(chunkOutlineVerts), 3 ) )
-		var chunkOutlineMaterial = new THREE.LineBasicMaterial( { color: 0x00ffff, linewidth: 1, transparent: true } )
-		this.chunkOutline = new THREE.Line( chunkOutlineGeometry, chunkOutlineMaterial )
-		this.chunkOutline.position.copy(this.chunkPos).multiplyScalar(Chunk.size)
-		scene.add( this.chunkOutline )
+		this.chunkOutline = new ChunkOutline(this.object3d)
 
 	}
 	dispose() {
+		scene.remove(this.object3d)
 		this.chunkMeshManager.dispose()
-		scene.remove( this.chunkOutline )
 		QuadIdsByBlockAndSidePool.release(this.quadIdsByBlockAndSide)
 		// break references between neighbouring chunks so they can be garbage collected
 		Sides.each(side => {
