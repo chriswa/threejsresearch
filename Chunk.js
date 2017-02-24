@@ -66,7 +66,7 @@ class ChunkMesh {
 			ChunkMesh.material = new THREE.MeshBasicMaterial( { map: mainTexture, vertexColors: THREE.VertexColors, wireframe: false } )
 		}
 		this.mesh = new THREE.Mesh( this.geometry, ChunkMesh.material )
-		this.quadsToPush = []
+		this.quadsToPushToGpu = []
 	}
 	reset() { // from pool
 		this.mesh.visible = true
@@ -88,9 +88,24 @@ class Chunk {
 		this.quadHoleList = []
 		this.quadDirtyList = []
 
-		this.incrementalRedraw = { active: false, coords: [0, 0, 0] }
+		// queue the majority of the work to occur during update calls
+		this.incrementalRedraw = { active: true, coords: [0, 0, 0]}
+
+		// chunk outline
+		var chunkOutlineVerts = [ 0,0,0,  0,0,1,  0,1,1,  1,1,1,  1,1,0,  0,1,0,  0,0,0,  1,0,0,  1,0,1,  0,0,1,  0,1,1,  0,1,0,  1,1,0,  1,0,0,  1,0,1,  1,1,1 ]
+		for (var i = 0; i < chunkOutlineVerts.length; i += 1) {
+			chunkOutlineVerts[i] *= Chunk.sizeX
+		}
+		var chunkOutlineGeometry = new THREE.BufferGeometry()
+		chunkOutlineGeometry.addAttribute( 'position', new THREE.BufferAttribute( new Float32Array(chunkOutlineVerts), 3 ) )
+		var chunkOutlineMaterial = new THREE.LineBasicMaterial( { color: 0x00ffff, linewidth: 1, transparent: true } )
+		this.chunkOutline = new THREE.Line( chunkOutlineGeometry, chunkOutlineMaterial )
+		this.chunkOutline.position.copy(this.chunkPos).multiplyScalar(Chunk.sizeX)
+		scene.add( this.chunkOutline )
+
 	}
 	dispose() {
+		scene.remove( this.chunkOutline )
 		_.each(this.chunkMeshes, chunkMesh => {
 			scene.remove(chunkMesh.mesh)			
 			ChunkMeshPool.release(chunkMesh)
@@ -103,22 +118,15 @@ class Chunk {
 		})
 		this.neighboursBySideId = undefined
 	}
+	toString() {
+		return `Chunk(${this.id})`
+	}
 	addChunkMesh() {
 		var chunkMesh = ChunkMeshPool.acquire()
 		this.chunkMeshes.push( chunkMesh )
 		chunkMesh.mesh.position.copy(this.chunkPos).multiplyScalar(Chunk.sizeX)
 		scene.add( chunkMesh.mesh )
 		return chunkMesh
-	}
-	eachPos(callback) {
-		var blockPos = new BlockPos(this, 0, 0, 0)
-		for (blockPos.x = 0; blockPos.x < Chunk.sizeX; blockPos.x += 1) {
-			for (blockPos.y = 0; blockPos.y < Chunk.sizeY; blockPos.y += 1) {
-				for (blockPos.z = 0; blockPos.z < Chunk.sizeZ; blockPos.z += 1, blockPos.i += 1) {
-					callback(blockPos)
-				}
-			}
-		}
 	}
 	attachChunkNeighbour(side, chunk) {
 		this.neighboursBySideId[ side.id ] = chunk
@@ -211,10 +219,7 @@ class Chunk {
 			}
 		}
 	}
-	redraw() {
-
-		// queue the majority of the work to occur during update calls
-		this.incrementalRedraw = { active: true, coords: [0, 0, 0]}
+	stitchQuadsForNeighbouringChunks() {
 
 		// because we are not drawing quads facing the void, we must also add quads to neighbouring chunks which face our air blocks (also update nearby AO)
 		Sides.each(side => {
@@ -263,21 +268,16 @@ class Chunk {
 		})
 	}
 	drawFace(blockPos, side) {
-
-		// we want to draw the face. determine its uvs
 		var uvs = blockPos.getBlockType().textureSides[side.id]
-
 		var brightnesses = this.calculateVertexColours(blockPos, side)
 
-		var quadId = this.drawQuad(blockPos.x, blockPos.y, blockPos.z, side, uvs, brightnesses)
-		//if (temp === 2) { console.log(`drawFace quadId = ${quadId}`) }
+		var quadId = this.drawQuad(blockPos, side, uvs, brightnesses)
 		this.quadIdsByBlockAndSide[blockPos.i * 6 + side.id] = quadId
 	}
 	eraseFace(blockPos, side) {
 		var quadId = this.quadIdsByBlockAndSide[ blockPos.i * 6 + side.id ]
 		if (quadId === 0) { debugger }
-		//console.log(`eraseFace quadId = ${quadId}`)
-		this.removeQuad(quadId)
+		this.quadDirtyList.push(quadId) // leave it in the interleavedData for now, in case another quad needs to be drawn this frame!
 		this.quadIdsByBlockAndSide[ blockPos.i * 6 + side.id ] = undefined // necessary?
 	}
 	redrawFace(blockPos, side) {
@@ -321,7 +321,7 @@ class Chunk {
 		}
 		return brightnesses
 	}
-	drawQuad(x, y, z, side, uvs, brightnesses) {
+	drawQuad(blockPos, side, uvs, brightnesses) {
 
 		var quadId, chunkMesh
 		// prefer to draw over dirty quads, which will need to be updated anyway
@@ -344,24 +344,21 @@ class Chunk {
 			this.quadCount += 1
 			chunkMesh.geometry.setDrawRange(0, (((this.quadCount - 1) % maxQuadsPerMesh) + 1) * indicesPerFace)
 		}
-		chunkMesh.quadsToPush.push(quadId % maxQuadsPerMesh)
+		chunkMesh.quadsToPushToGpu.push(quadId % maxQuadsPerMesh)
 
-		QuadWriter.draw(chunkMesh.interleavedData, quadId % maxQuadsPerMesh, {x,y,z}, side, uvs, brightnesses)
+		QuadWriter.draw(chunkMesh.interleavedData, quadId % maxQuadsPerMesh, blockPos, side, uvs, brightnesses)
 
 		return quadId
 	}
 	getChunkMeshForQuad(quadId) {
 		return this.chunkMeshes[ Math.floor( quadId / maxQuadsPerMesh ) ]
 	}
-	removeQuad(quadId) {
-		this.quadDirtyList.push(quadId) // leave it in the interleavedData for now, in case another quad needs to be drawn this frame!
-	}
 	update() {
 
 		// upgrade dirty quads into holes
 		_.each(this.quadDirtyList, quadId => {
 			var chunkMesh = this.getChunkMeshForQuad(quadId)
-			chunkMesh.quadsToPush.push(quadId % maxQuadsPerMesh)
+			chunkMesh.quadsToPushToGpu.push(quadId % maxQuadsPerMesh)
 
 			QuadWriter.clear(chunkMesh.interleavedData, quadId % maxQuadsPerMesh)
 
@@ -398,6 +395,8 @@ class Chunk {
 						if (incCoords[2] === Chunk.sizeZ) {
 							this.incrementalRedraw.active = false
 
+							this.stitchQuadsForNeighbouringChunks()
+
 							//console.log(this.quadCount)
 
 							break
@@ -417,14 +416,14 @@ class Chunk {
 				return
 			}
 
-			if (chunkMesh.quadsToPush.length) {
+			if (chunkMesh.quadsToPushToGpu.length) {
 				var minQuadIndex = Infinity
 				var maxQuadIndex = 0
-				_.each(chunkMesh.quadsToPush, quadToPush => {
+				_.each(chunkMesh.quadsToPushToGpu, quadToPush => {
 					minQuadIndex = Math.min(minQuadIndex, quadToPush)
-					maxQuadIndex = Math.max(maxQuadIndex, quadToPush)
+					maxQuadIndex = Math.max(maxQuadIndex, quadToPush + 1)
 				})
-				chunkMesh.quadsToPush = []
+				chunkMesh.quadsToPushToGpu = []
 
 				gl.bindBuffer( gl.ARRAY_BUFFER, chunkMesh.interleavedBuffer.__webglBuffer )
 				gl.bufferSubData( gl.ARRAY_BUFFER, minQuadIndex * 128, chunkMesh.interleavedData.subarray( minQuadIndex * 32, maxQuadIndex * 32 ) ) // 128 = 8 elements per vertex * 4 verts per quad * 4 bytes per element?
@@ -432,9 +431,6 @@ class Chunk {
 
 		})
 
-	}
-	toString() {
-		return `Chunk(${this.id})`
 	}
 }
 

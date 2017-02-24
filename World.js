@@ -21,7 +21,7 @@ var World = {
 	chunksQueued: {},
 	getBlockPosFromWorldPoint(p) {
 		var ix = Math.floor(p.x)
-		var iy = Math.ceil(p.y)
+		var iy = Math.floor(p.y)
 		var iz = Math.floor(p.z)
 		var cx = Math.floor(ix / Chunk.sizeX)
 		var cy = Math.floor(iy / Chunk.sizeY)
@@ -58,8 +58,6 @@ var World = {
 				}
 			}
 
-			chunk.redraw()
-
 		})
 	},
 	removeChunk(chunk) {
@@ -75,7 +73,7 @@ var World = {
 	},
 	loadAndUnloadChunksNearPoint(p) {
 		var ix = Math.floor(p.x)
-		var iy = Math.ceil(p.y)
+		var iy = Math.floor(p.y)
 		var iz = Math.floor(p.z)
 		var centerCX = Math.floor(ix / Chunk.sizeX)
 		var centerCY = Math.floor(iy / Chunk.sizeY)
@@ -92,7 +90,7 @@ var World = {
 		var chunksToLoad = []
 
 		var chunkLoadCount = 0
-		var chunkRange = 8
+		var chunkRange = 2
 		var chunkPos = new THREE.Vector3()
 		for (var dcx = -chunkRange; dcx <= chunkRange; dcx += 1) {
 			for (var dcy = -chunkRange; dcy <= chunkRange; dcy += 1) {
