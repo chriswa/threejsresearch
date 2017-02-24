@@ -23,12 +23,12 @@ var World = {
 		var ix = Math.floor(p.x)
 		var iy = Math.floor(p.y)
 		var iz = Math.floor(p.z)
-		var cx = Math.floor(ix / Chunk.sizeX)
-		var cy = Math.floor(iy / Chunk.sizeY)
-		var cz = Math.floor(iz / Chunk.sizeZ)
+		var cx = Math.floor(ix / Chunk.size)
+		var cy = Math.floor(iy / Chunk.size)
+		var cz = Math.floor(iz / Chunk.size)
 		var chunk = this.chunks[ this.getChunkIdFromCoords(cx, cy, cz) ]
 		if (!chunk) { return BlockPos.badPos }
-		return chunk.getBlockPos(ix - cx * Chunk.sizeX, iy - cy * Chunk.sizeY, iz - cz * Chunk.sizeZ)
+		return new BlockPos(chunk, ix - cx * Chunk.size, iy - cy * Chunk.size, iz - cz * Chunk.size)
 	},
 	getChunkId(chunkPos) {
 		return chunkPos.x + ',' + chunkPos.y + ',' + chunkPos.z
@@ -68,37 +68,23 @@ var World = {
 	updateChunks() {
 		_.each(this.chunks, chunk => chunk.update())
 	},
-	build() {
-		this.loadAndUnloadChunksNearPoint(new THREE.Vector3(0, 0, 0))
-	},
-	loadAndUnloadChunksNearPoint(p) {
-		var ix = Math.floor(p.x)
-		var iy = Math.floor(p.y)
-		var iz = Math.floor(p.z)
-		var centerCX = Math.floor(ix / Chunk.sizeX)
-		var centerCY = Math.floor(iy / Chunk.sizeY)
-		var centerCZ = Math.floor(iz / Chunk.sizeZ)
-		var centerId = this.getChunkIdFromCoords(centerCX, centerCY, centerCZ)
-		if (centerId === this.lastCenterId) {
-			return
-		}
-		this.lastCenterId = centerId
-
-
+	loadAndUnloadChunksAroundChunkPos(centreChunkPos, chunkRange) {
+		
 		_.each(this.chunks, chunk => chunk.outOfRange = true )
 
 		var chunksToLoad = []
 
 		var chunkLoadCount = 0
-		var chunkRange = 2
-		var chunkPos = new THREE.Vector3()
-		for (var dcx = -chunkRange; dcx <= chunkRange; dcx += 1) {
-			for (var dcy = -chunkRange; dcy <= chunkRange; dcy += 1) {
-				for (var dcz = -chunkRange; dcz <= chunkRange; dcz += 1) {
-					if (Math.sqrt(dcx*dcx + dcy*dcy + dcz*dcz) > chunkRange + 0.5) { continue }
+		var chunkLoadRangeInt = Math.ceil(chunkRange)
+		var chunkRangeSqr = chunkRange * chunkRange
+		var cursorChunkPos = new THREE.Vector3()
+		for (var dcx = -chunkLoadRangeInt; dcx <= chunkLoadRangeInt; dcx += 1) {
+			for (var dcy = -chunkLoadRangeInt; dcy <= chunkLoadRangeInt; dcy += 1) {
+				for (var dcz = -chunkLoadRangeInt; dcz <= chunkLoadRangeInt; dcz += 1) {
+					if (dcx*dcx + dcy*dcy + dcz*dcz > chunkRangeSqr) { continue }
 
-					chunkPos.set(centerCX + dcx, centerCY + dcy, centerCZ + dcz)
-					var targetChunkId = this.getChunkId(chunkPos)
+					cursorChunkPos.set(centreChunkPos.x + dcx, centreChunkPos.y + dcy, centreChunkPos.z + dcz)
+					var targetChunkId = this.getChunkId(cursorChunkPos)
 
 					if (this.chunksQueued[targetChunkId]) {
 						continue
@@ -110,7 +96,7 @@ var World = {
 						continue
 					}
 
-					chunksToLoad.push(chunkPos.clone())
+					chunksToLoad.push(cursorChunkPos.clone())
 
 				}
 			}

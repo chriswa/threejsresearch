@@ -1,9 +1,9 @@
-var T = { name: "TOP",    id: 0, verts: [ 0,1,1, 1,1,1, 1,1,0, 0,1,0, ], dx: 0, dy: 1, dz: 0, size: Chunk.sizeY, deltaIndex: Chunk.sizeZ,                }
-var B = { name: "BOTTOM", id: 1, verts: [ 0,0,0, 1,0,0, 1,0,1, 0,0,1, ], dx: 0, dy:-1, dz: 0, size: Chunk.sizeY, deltaIndex: -Chunk.sizeZ,               }
-var N = { name: "NORTH",  id: 2, verts: [ 1,0,1, 1,1,1, 0,1,1, 0,0,1, ], dx: 0, dy: 0, dz: 1, size: Chunk.sizeZ, deltaIndex: 1,                          }
-var S = { name: "SOUTH",  id: 3, verts: [ 0,0,0, 0,1,0, 1,1,0, 1,0,0, ], dx: 0, dy: 0, dz:-1, size: Chunk.sizeZ, deltaIndex: -1,                         }
-var E = { name: "EAST",   id: 4, verts: [ 1,0,0, 1,1,0, 1,1,1, 1,0,1, ], dx: 1, dy: 0, dz: 0, size: Chunk.sizeX, deltaIndex: Chunk.sizeZ * Chunk.sizeY,  }
-var W = { name: "WEST",   id: 5, verts: [ 0,0,1, 0,1,1, 0,1,0, 0,0,0, ], dx:-1, dy: 0, dz: 0, size: Chunk.sizeX, deltaIndex: -Chunk.sizeZ * Chunk.sizeY, }
+var T = { name: "TOP",    id: 0, verts: [ 0,1,1, 1,1,1, 1,1,0, 0,1,0, ], dx: 0, dy: 1, dz: 0, size: Chunk.size, deltaIndex: Chunk.size,                }
+var B = { name: "BOTTOM", id: 1, verts: [ 0,0,0, 1,0,0, 1,0,1, 0,0,1, ], dx: 0, dy:-1, dz: 0, size: Chunk.size, deltaIndex: -Chunk.size,               }
+var N = { name: "NORTH",  id: 2, verts: [ 1,0,1, 1,1,1, 0,1,1, 0,0,1, ], dx: 0, dy: 0, dz: 1, size: Chunk.size, deltaIndex: 1,                          }
+var S = { name: "SOUTH",  id: 3, verts: [ 0,0,0, 0,1,0, 1,1,0, 1,0,0, ], dx: 0, dy: 0, dz:-1, size: Chunk.size, deltaIndex: -1,                         }
+var E = { name: "EAST",   id: 4, verts: [ 1,0,0, 1,1,0, 1,1,1, 1,0,1, ], dx: 1, dy: 0, dz: 0, size: Chunk.size, deltaIndex: Chunk.size * Chunk.size,  }
+var W = { name: "WEST",   id: 5, verts: [ 0,0,1, 0,1,1, 0,1,0, 0,0,0, ], dx:-1, dy: 0, dz: 0, size: Chunk.size, deltaIndex: -Chunk.size * Chunk.size, }
 
 var Sides = {
 	TOP:    T,

@@ -21,13 +21,13 @@ self.addEventListener('message', function(e) {
 
 	var chunkBlockData = data.blockData
 
-	for (var x = 0, i = 0; x < Chunk.sizeX; x += 1) {
-		for (var y = 0; y < Chunk.sizeY; y += 1) {
-			for (var z = 0; z < Chunk.sizeZ; z += 1, i += 1) {
+	for (var x = 0, i = 0; x < Chunk.size; x += 1) {
+		for (var y = 0; y < Chunk.size; y += 1) {
+			for (var z = 0; z < Chunk.size; z += 1, i += 1) {
 				
-				var sampleX = x + cx * Chunk.sizeX
-				var sampleY = y + cy * Chunk.sizeY
-				var sampleZ = z + cz * Chunk.sizeZ
+				var sampleX = x + cx * Chunk.size
+				var sampleY = y + cy * Chunk.size
+				var sampleZ = z + cz * Chunk.size
 
 				var blockData = 0
 

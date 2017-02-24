@@ -21,6 +21,7 @@
 		<script src="FirstPersonControls.js"></script>
 		<script src="PlayerControls.js"></script>
 		<script src="QuadWriter.js"></script>
+		<script src="ChunkMesh.js"></script>
 		<script src="Chunk.js"></script>
 		<script src="BlockPos.js"></script>
 		<script src="Sides.js"></script>
@@ -82,12 +83,26 @@
 
 			})
 
+			var ChunkLoading = {
+				followsCamera: false,
+				range: 0,
+				centreChunkPos: new THREE.Vector3(0, 0, 0),
+				update(force) {
+					if (this.followsCamera && !force) {
+						var cameraChunkPos = camera.position.clone().divideScalar(Chunk.size).floor()
+						if (cameraChunkPos.equals(this.centreChunkPos)) { return } // centre hasn't changed, skip update
+						this.centreChunkPos.copy(cameraChunkPos)
+					}
+					World.loadAndUnloadChunksAroundChunkPos(this.centreChunkPos, this.range)
+				},
+			}
+
 			loader.load('minecraft15.png', texture => { // e.g. loading multiple textures with promise.all: http://stackoverflow.com/questions/7919516/using-textures-in-three-js
 				texture.minFilter = THREE.NearestFilter
 				texture.magFilter = THREE.NearestFilter
 				mainTexture = texture
 
-				World.build() // requires mainTexture
+				World.loadAndUnloadChunksAroundChunkPos(ChunkLoading.centreChunkPos, ChunkLoading.range) // requires mainTexture
 
 				start()
 
@@ -126,19 +141,6 @@
 						var dt = Math.min(clock.getDelta(), 0.2)
 						elapsedTime += dt
 
-						//// spam block updates!
-						//if (elapsedTime > 0.01) {
-						//	elapsedTime -= 0.01
-						//	//debugger
-						//	var x = Math.floor(Math.random() * Chunk.sizeX)
-						//	var y = 3 // Math.floor(Math.random() * Chunk.sizeY)
-						//	var z = Math.floor(Math.random() * Chunk.sizeZ)
-						//	var middleChunk = World.chunks['0,0,0']
-						//
-						//	var blockPos = middleChunk.getBlockPos(x, y, z)
-						//	blockPos.setBlockData( blockPos.getBlockData() === 4 ? 0 :  4 )
-						//}
-
 						PlayerControls.update(dt)
 
 						// DEBUG: ever onward! for fps research!
@@ -146,8 +148,7 @@
 							//camera.position.z += dt * 50
 						}
 
-						// move chunks?
-						World.loadAndUnloadChunksNearPoint(camera.position)
+						ChunkLoading.update()
 
 						document.getElementById("coords").innerHTML = `x = ${Math.round(camera.position.x)}, y = ${Math.round(camera.position.y)}, z = ${Math.round(camera.position.z)}`
 
