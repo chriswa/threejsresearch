@@ -30,7 +30,7 @@ var ChunkGenWorkerManager = {
 	},
 	processQueue() {
 		while (this.availableWorkers.length > 0 && this.queuedTasks.length > 0) {
-			var task = this.queuedTasks.pop()
+			var task = this.queuedTasks.shift()
 			var worker = this.availableWorkers.pop()
 			this.startWorker(worker, task)
 		}
@@ -145,31 +145,31 @@ var World = {
 		var chunksToLoad = []
 
 		var chunkLoadCount = 0
-		var chunkLoadRangeInt = Math.ceil(chunkRange)
-		var chunkRangeSqr = chunkRange * chunkRange
+
+		var chunksWithinDistance = 1
+		for (var i = 0; i < voxelSphereAreaByDistance.length; i += 1) {
+			if (voxelSphereAreaByDistance[i][0] > chunkRange) { break }
+			chunksWithinDistance = voxelSphereAreaByDistance[i][1]
+		}
+
 		var cursorChunkPos = new THREE.Vector3()
-		for (var dcx = -chunkLoadRangeInt; dcx <= chunkLoadRangeInt; dcx += 1) {
-			for (var dcy = -chunkLoadRangeInt; dcy <= chunkLoadRangeInt; dcy += 1) {
-				for (var dcz = -chunkLoadRangeInt; dcz <= chunkLoadRangeInt; dcz += 1) {
-					if (dcx*dcx + dcy*dcy + dcz*dcz > chunkRangeSqr) { continue }
+		for (var i = 0; i < chunksWithinDistance; i += 1) {
 
-					cursorChunkPos.set(centreChunkPos.x + dcx, centreChunkPos.y + dcy, centreChunkPos.z + dcz)
-					var targetChunkId = this.getChunkId(cursorChunkPos)
+			cursorChunkPos.addVectors(centreChunkPos, sortedVoxelDistances[i])
+			var targetChunkId = this.getChunkId(cursorChunkPos)
 
-					if (this.chunksQueued[targetChunkId]) {
-						continue
-					}
-
-					var alreadyLoadedChunk = this.chunks[targetChunkId]
-					if (alreadyLoadedChunk) {
-						alreadyLoadedChunk.outOfRange = false
-						continue
-					}
-
-					chunksToLoad.push(cursorChunkPos.clone())
-
-				}
+			if (this.chunksQueued[targetChunkId]) {
+				continue
 			}
+
+			var alreadyLoadedChunk = this.chunks[targetChunkId]
+			if (alreadyLoadedChunk) {
+				alreadyLoadedChunk.outOfRange = false
+				continue
+			}
+
+			chunksToLoad.push(cursorChunkPos.clone())
+
 		}
 		var chunksToRemove = []
 		_.each(this.chunks, chunk => {

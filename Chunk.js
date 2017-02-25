@@ -30,7 +30,7 @@ class Chunk {
 
 		this.chunkMeshManager = undefined
 
-		this.chunkOutline = new ChunkOutline(this.object3d)
+		//this.chunkOutline = new ChunkOutline(this.object3d)
 	}
 	start(chunkPos, blockDataBuffer, quadIdsByBlockAndSideBuffer, quadCount, prefilledVertexBuffers) {
 		this.chunkPos = chunkPos
@@ -43,7 +43,7 @@ class Chunk {
 		this.chunkMeshManager = new ChunkMeshManager(this.object3d)
 		this.chunkMeshManager.prefill(quadCount, prefilledVertexBuffers)
 
-		this.stitchQuadsForNeighbouringChunks()
+		//this.stitchQuadsForNeighbouringChunks()
 
 		scene.add(this.object3d)
 	}

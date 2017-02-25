@@ -42,6 +42,8 @@
 			document.body.appendChild( stats.elapsed.domElement )
 
 
+			var queryStringObject = loadQueryString()
+
 
 			var mainTexture
 			var loader = new THREE.TextureLoader()
@@ -50,7 +52,7 @@
 			var gl = renderer.context
 			renderer.setPixelRatio( window.devicePixelRatio )
 			renderer.setSize( window.innerWidth, window.innerHeight )
-			renderer.setClearColor( new THREE.Color( 0x7ec0ee ) )
+			renderer.setClearColor( new THREE.Color( 0x7ec0ee ) ) // sky blue
 			document.body.appendChild( renderer.domElement )
 
 			var scene  = new THREE.Scene()
@@ -87,7 +89,7 @@
 
 			var ChunkLoading = {
 				followsCamera: true,
-				range: 4.5,
+				range: 5.5, // 8,5 seems good with 32^3 chunks!
 				centreChunkPos: new THREE.Vector3(0, 0, 0),
 				update(force) {
 					if (this.followsCamera && !force) {
@@ -98,6 +100,10 @@
 					World.loadAndUnloadChunksAroundChunkPos(this.centreChunkPos, this.range)
 				},
 			}
+
+			if (queryStringObject.range) { ChunkLoading.range = parseFloat(queryStringObject.range) }
+
+			//scene.fog = new THREE.Fog(0x7ec0ee, (ChunkLoading.range - 1) * CHUNK_SIZE * 0.5, (ChunkLoading.range - 2) * CHUNK_SIZE)
 
 			loader.load('minecraft15.png', texture => { // e.g. loading multiple textures with promise.all: http://stackoverflow.com/questions/7919516/using-textures-in-three-js
 				texture.minFilter = THREE.NearestFilter
@@ -147,8 +153,8 @@
 
 						// DEBUG: ever onward! for fps research!
 						if (!PlayerControls.pointerLocked) {
-							//camera.position.z += dt * 20
-							//camera.position.x += dt * 20
+							//camera.position.z += dt * 50
+							//camera.position.x += dt * 50
 						}
 
 						ChunkLoading.update()
@@ -180,6 +186,16 @@
 					requestAnimationFrame( render )
 				}
 			})
+
+			function loadQueryString() {
+				var params = {}
+				var queryElements = document.location.search.substring(1).split(/\&/)
+				for (var i in queryElements) {
+					var nameVal = queryElements[i].split(/\=/)
+					params[unescape(nameVal[0])] = unescape(nameVal[1])
+				}
+				return params
+			}
 		</script>
 	</body>
 </html>

@@ -10,6 +10,11 @@ importScripts('lodash.js', 'perlin.js', 'three.js', 'constants.js', 'Pool.js', '
 noise.seed(2)
 
 
+var borderedSize = CHUNK_SIZE + 2
+
+var borderedTransparencyLookup = new Uint8Array( borderedSize * borderedSize * borderedSize / 8 ) // shared for this worker?
+
+
 self.addEventListener('message', function(e) {
 	var data = e.data
 
@@ -19,14 +24,14 @@ self.addEventListener('message', function(e) {
 	var reusableVertexBuffers = data.reusableVertexBuffers
 
 	// generate the block data (perlin noise!)
-	generateChunkBlockData(chunkPos, chunkBlockData)
+	loadChunkData(chunkPos, chunkBlockData, borderedTransparencyLookup)
 
 	// prepare a pool to serve reusableVertexBuffers, then create them as needed
 	var vertexBufferPool = new Pool(() => new Float32Array( maxQuadsPerMesh * 8 * 4 ).buffer)
 	vertexBufferPool.pool = reusableVertexBuffers
 
 	// pre-draw the quads to vertex buffers
-	var chunkPrewriter = new ChunkPrewriter(chunkBlockData, quadIdsByBlockAndSide, vertexBufferPool)
+	var chunkPrewriter = new ChunkPrewriter(chunkBlockData, quadIdsByBlockAndSide, vertexBufferPool, borderedTransparencyLookup)
 
 	chunkPrewriter.drawAllBlocks()
 
@@ -51,17 +56,18 @@ self.addEventListener('message', function(e) {
 
 }, false);
 
-var borderedSize = CHUNK_SIZE + 2
 
 class ChunkPrewriter {
-	constructor(blockData, quadIdsByBlockAndSide, vertexBufferPool, neighbourEdgeOpacities) {
+	constructor(blockData, quadIdsByBlockAndSide, vertexBufferPool, borderedTransparencyLookupBuffer) {
 		this.blockData = blockData
 		this.quadIdsByBlockAndSide = quadIdsByBlockAndSide
 		this.quadCount = 1 // for development, skip the first quad, so we can know that a quadId of 0 is bad data
 		this.vertexBuffers = []
 		this.currentVertexBuffer = undefined
-		this.transparencyLookup = new Uint8Array( borderedSize * borderedSize * borderedSize / 8 )
+		this.borderedTransparencyLookup = new Uint8Array( borderedTransparencyLookupBuffer )
 		this.vertexBufferPool = vertexBufferPool
+		this._edgeOccludingBlockPos = new THREE.Vector3()   // optimization: keep these around for repeated calls to calculateVertexColours
+		this._cornerOccludingBlockPos = new THREE.Vector3()   // optimization: keep these around for repeated calls to calculateVertexColours
 	}
 	addVertexBuffer() {
 		var vertexBuffer = new Float32Array( this.vertexBufferPool.acquire() )
@@ -79,61 +85,43 @@ class ChunkPrewriter {
 		this.quadIdsByBlockAndSide[blockPosIndex * 6 + side.id] = quadId
 	}
 
-	prepareTransparencyLookup(neighbourEdgeOpacities) {
-		var i = 0;
-		for (var x = 0; x < CHUNK_SIZE; x += 1) {
-			for (var y = 0; y < CHUNK_SIZE; y += 1) {
-				for (var z = 0; z < CHUNK_SIZE; z += 1) {
-					var b = (x+1) * borderedSize*borderedSize + (y+1) * borderedSize + (z+1)
-					var j = b >> 3
-					var k = b & 0x7
 
-					if (this.blockData[i] === 0) {
-						this.transparencyLookup[j] |= 1 << k
-					}
-
-					//(this.transparencyLookup[j] >> k) & 0x1
-
-					i += 1
-				}
-			}
-		}
-		// TODO: write neighbourEdgeOpacities
-	}
 	isTransparent(blockPos) {
-		var b = (blockPos.x+1) * borderedSize*borderedSize + (blockPos.y+1) * borderedSize + (blockPos.z+1)
-		var j = b >> 3
-		var k = b & 0x7
-		return ((this.transparencyLookup[j] >> k) & 0x1)
+		var borderedTransparencyLookupIndex = (blockPos.x+1) * borderedSize*borderedSize + (blockPos.y+1) * borderedSize + (blockPos.z+1)
+		var byteIndex = borderedTransparencyLookupIndex >> 3
+		var bitIndex  = borderedTransparencyLookupIndex & 0x7
+		return ((this.borderedTransparencyLookup[byteIndex] >> bitIndex) & 0x1)
 	}
 
 	drawAllBlocks() {
-		this.prepareTransparencyLookup()
+		var solidBlockPos = new THREE.Vector3()
+		var airBlockPos = new THREE.Vector3()
 
-		var mainBlockPos = new THREE.Vector3()
-		var adjacentBlockPos = new THREE.Vector3()
 		var mainBlockIndex = 0
 
-		for (mainBlockPos.x = 0; mainBlockPos.x < CHUNK_SIZE; mainBlockPos.x += 1) {
-			for (mainBlockPos.y = 0; mainBlockPos.y < CHUNK_SIZE; mainBlockPos.y += 1) {
-				for (mainBlockPos.z = 0; mainBlockPos.z < CHUNK_SIZE; mainBlockPos.z += 1) {
+		for (solidBlockPos.x = 0; solidBlockPos.x < CHUNK_SIZE; solidBlockPos.x += 1) {
+			for (solidBlockPos.y = 0; solidBlockPos.y < CHUNK_SIZE; solidBlockPos.y += 1) {
+				for (solidBlockPos.z = 0; solidBlockPos.z < CHUNK_SIZE; solidBlockPos.z += 1) {
 
-					if (!this.isTransparent(mainBlockPos)) {
+					if (!this.isTransparent(solidBlockPos)) {
 
-						Sides.each(side => {
+						for (var sideId = 0; sideId < 6; sideId += 1) {
+							var side = SidesById[sideId]
 
-							adjacentBlockPos.addVectors(mainBlockPos, side.deltaVector3) // n.b. -1..CHUNK_SIZE+1 for one dimension
-							var adjacentIsTransparent = this.isTransparent(adjacentBlockPos)
+							airBlockPos.addVectors(solidBlockPos, side.deltaVector3) // n.b. -1..CHUNK_SIZE+1 for one dimension
+							var adjacentIsTransparent = this.isTransparent(airBlockPos)
 							if (adjacentIsTransparent) {
 
 								var blockType = BlockTypesById[this.blockData[mainBlockIndex]]
 								var uvs = blockType.textureSides[side.id]
-								var brightnesses = [1,1,1,1] // this.calculateVertexColours(mainBlockPos, side)
 
-								this.addQuad(mainBlockPos, side, uvs, brightnesses)
+								// determine vertex colours (AO)
+								var brightnesses = this.calculateVertexColours(airBlockPos, side)
+
+								this.addQuad(solidBlockPos, side, uvs, brightnesses)
 							}
 							
-						})
+						}
 					}
 
 
@@ -141,17 +129,58 @@ class ChunkPrewriter {
 				}
 			}
 		}
+
+		// because quadCount starts at 1 (to aid debugging,) but we draw starting at 0 for simplicity (because this only affects the first ChunkMesh in a ChunkMeshManager)...
+		// we need to clear the first quad!
+		if (this.vertexBuffers.length) {
+			QuadWriter.clear(this.vertexBuffers[0], 0)
+		}
+
+	}
+
+	calculateVertexColours(airBlockPos, side) {
+		// determine ambient occlusion
+		var brightnesses = [1, 1, 1, 1]
+		var occludedBrightness = 0.7
+
+		// check for occlusion at right angles to the block's normal
+		for (var tangentIndex = 0; tangentIndex < 4; tangentIndex += 1) {
+			var tangentSide = side.tangents[tangentIndex].side
+			
+			this._edgeOccludingBlockPos.addVectors(airBlockPos, tangentSide.deltaVector3)
+
+			if (!this.isTransparent(this._edgeOccludingBlockPos)) {
+				brightnesses[tangentIndex] = occludedBrightness
+				brightnesses[(tangentIndex + 1) % 4] = occludedBrightness
+				continue // optimization: skip corners, since both verts which could be affected are already in shadow
+			}
+
+			// right angle again
+			var diagonalTangentSide = side.tangents[(tangentIndex + 1) % 4].side
+
+			this._cornerOccludingBlockPos.addVectors(this._edgeOccludingBlockPos, diagonalTangentSide.deltaVector3)
+
+			if (!this.isTransparent(this._cornerOccludingBlockPos)) {
+				brightnesses[(tangentIndex + 1) % 4] = occludedBrightness
+			}
+		}
+		return brightnesses
 	}
 }
 
 
-function generateChunkBlockData(chunkPos, chunkBlockData) {
-	for (var x = 0, i = 0; x < CHUNK_SIZE; x += 1) {
-		for (var y = 0; y < CHUNK_SIZE; y += 1) {
-			for (var z = 0; z < CHUNK_SIZE; z += 1, i += 1) {
+function loadChunkData(chunkPos, chunkBlockData, borderedTransparencyLookup) {
+	var chunkBlockIndex = 0
+	var borderedTransparencyLookupIndex = 0
+	for (var x = -1; x < CHUNK_SIZE + 1; x += 1) {
+		var isBorderX = x < 0 || x === CHUNK_SIZE
+		for (var y = -1; y < CHUNK_SIZE + 1; y += 1) {
+			var isBorderY = y < 0 || y === CHUNK_SIZE
+			for (var z = -1; z < CHUNK_SIZE + 1; z += 1) {
+				var isBorderZ = z < 0 || z === CHUNK_SIZE
 				
 				var sampleX = x + chunkPos.x * CHUNK_SIZE
-				var sampleY = y + chunkPos.y * CHUNK_SIZE - 6
+				var sampleY = y + chunkPos.y * CHUNK_SIZE
 				var sampleZ = z + chunkPos.z * CHUNK_SIZE
 
 				var blockData = 0
@@ -163,15 +192,31 @@ function generateChunkBlockData(chunkPos, chunkBlockData) {
 						blockData = BlockTypesByName.air.id
 				}
 				else {
-					if (noise.simplex3(sampleX / 20, sampleY / 50, sampleZ / 20) > sampleY / 1) {
+					if (noise.simplex3(sampleX / 20, sampleY / 50, sampleZ / 20) > sampleY / 5) {
 						blockData = BlockTypesByName.dirt.id
 					}
-					if (noise.simplex3((sampleX + 874356) / 10, sampleY / 50, (sampleZ + 874356) / 10) > ((sampleY + 0) / 2)) {
+					if (noise.simplex3((sampleX + 874356) / 10, sampleY / 50, (sampleZ + 874356) / 10) > ((sampleY + 0) / 10)) {
 						blockData = BlockTypesByName.stone.id
 					}
 				}
-				
-				chunkBlockData[i] = blockData;
+
+				if (!isBorderX && !isBorderY && !isBorderZ) {
+					chunkBlockData[chunkBlockIndex] = blockData;
+					chunkBlockIndex += 1
+				}
+
+				// write to borderedTransparencyLookup
+				var byteIndex = borderedTransparencyLookupIndex >> 3
+				var bitIndex  = borderedTransparencyLookupIndex & 0x7
+				if (blockData === BlockTypesByName.air.id) {
+					this.borderedTransparencyLookup[byteIndex] |= 1 << bitIndex // set bit
+				}
+				else {
+					this.borderedTransparencyLookup[byteIndex] &= ~(1 << bitIndex) // unset bit
+				}
+
+				borderedTransparencyLookupIndex += 1
+
 			}
 		}
 	}
