@@ -18,6 +18,8 @@
 		<script src="stats.js"></script>
 		<script src="perlin.js"></script>
 		<script src="three.js"></script>
+		<script src="constants.js"></script>
+		<script src="Pool.js"></script>
 		<script src="FirstPersonControls.js"></script>
 		<script src="PlayerControls.js"></script>
 		<script src="QuadWriter.js"></script>
@@ -84,12 +86,12 @@
 			})
 
 			var ChunkLoading = {
-				followsCamera: false,
-				range: 1,
+				followsCamera: true,
+				range: 4.5,
 				centreChunkPos: new THREE.Vector3(0, 0, 0),
 				update(force) {
 					if (this.followsCamera && !force) {
-						var cameraChunkPos = camera.position.clone().divideScalar(Chunk.size).floor()
+						var cameraChunkPos = camera.position.clone().divideScalar(CHUNK_SIZE).floor()
 						if (cameraChunkPos.equals(this.centreChunkPos)) { return } // centre hasn't changed, skip update
 						this.centreChunkPos.copy(cameraChunkPos)
 					}
@@ -145,7 +147,8 @@
 
 						// DEBUG: ever onward! for fps research!
 						if (!PlayerControls.pointerLocked) {
-							//camera.position.z += dt * 50
+							//camera.position.z += dt * 20
+							//camera.position.x += dt * 20
 						}
 
 						ChunkLoading.update()

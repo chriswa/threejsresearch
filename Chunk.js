@@ -2,7 +2,7 @@ class ChunkOutline {
 	constructor(parentObject3d) {
 		var chunkOutlineVerts = [ 0,0,0,  0,0,1,  0,1,1,  1,1,1,  1,1,0,  0,1,0,  0,0,0,  1,0,0,  1,0,1,  0,0,1,  0,1,1,  0,1,0,  1,1,0,  1,0,0,  1,0,1,  1,1,1 ]
 		for (var i = 0; i < chunkOutlineVerts.length; i += 1) {
-			chunkOutlineVerts[i] *= Chunk.size
+			chunkOutlineVerts[i] *= CHUNK_SIZE
 		}
 		var chunkOutlineGeometry = new THREE.BufferGeometry()
 		chunkOutlineGeometry.addAttribute( 'position', new THREE.BufferAttribute( new Float32Array(chunkOutlineVerts), 3 ) )
@@ -13,68 +13,51 @@ class ChunkOutline {
 }
 
 
+var ChunkPool = new Pool(() => new Chunk())
 
-var ChunkBlockDataPool = {
-	pool: [],
-	acquire() {
-		if (this.pool.length) {
-			return this.pool.pop()
-		}
-		return new Uint16Array( Chunk.sizeCubed )
-	},
-	release(obj) {
-		this.pool.push(obj)
-	},
-}
-
-var QuadIdsByBlockAndSidePool = {
-	pool: [],
-	acquire() {
-		if (this.pool.length) {
-			return this.pool.pop()
-		}
-		return new Uint16Array( Chunk.sizeCubed * facesPerCube )
-	},
-	release(obj) {
-		obj.fill(0) // reset to 0 for next user
-		this.pool.push(obj)
-	},
-}
 
 class Chunk {
-	constructor(chunkPos, blockData) {
-		this.blockData = blockData
-		this.id = World.getChunkId(chunkPos)
-		this.chunkPos = chunkPos
+	constructor() {
+		this.chunkPos = undefined
+		this.id = undefined
+
 		this.object3d = new THREE.Object3D()
-		this.object3d.position.copy(this.chunkPos).multiplyScalar(Chunk.size)
-		scene.add(this.object3d)
 
-		this.quadIdsByBlockAndSide = QuadIdsByBlockAndSidePool.acquire()
+		this.blockData = new Uint16Array( CHUNK_SIZE_CUBED )
+		this.quadIdsByBlockAndSide = new Uint16Array( CHUNK_SIZE_CUBED * facesPerCube )
 
-		this.neighboursBySideId = [ undefined, undefined, undefined, undefined, undefined, undefined ]
+		this.neighboursBySideId = []
+
+		this.chunkMeshManager = undefined
+
+		this.chunkOutline = new ChunkOutline(this.object3d)
+	}
+	start(chunkPos, blockDataBuffer, quadIdsByBlockAndSideBuffer, quadCount, prefilledVertexBuffers) {
+		this.chunkPos = chunkPos
+		this.id = World.getChunkId(chunkPos)
+		this.object3d.position.copy(this.chunkPos).multiplyScalar(CHUNK_SIZE)
+
+		this.blockData = new Uint16Array(blockDataBuffer)
+		this.quadIdsByBlockAndSide = new Uint16Array(quadIdsByBlockAndSideBuffer)
 
 		this.chunkMeshManager = new ChunkMeshManager(this.object3d)
+		this.chunkMeshManager.prefill(quadCount, prefilledVertexBuffers)
 
+		this.stitchQuadsForNeighbouringChunks()
 
-		// queue the majority of the work to occur during update calls
-		this.incrementalRedraw = { active: true, coords: [0, 0, 0]}
-
-		// chunk outline
-		this.chunkOutline = new ChunkOutline(this.object3d)
-
+		scene.add(this.object3d)
 	}
-	dispose() {
+	stop() {
 		scene.remove(this.object3d)
 		this.chunkMeshManager.dispose()
-		QuadIdsByBlockAndSidePool.release(this.quadIdsByBlockAndSide)
-		// break references between neighbouring chunks so they can be garbage collected
+		this.chunkMeshManager = undefined
+		// break references between neighbouring chunks
 		Sides.each(side => {
 			if (this.neighboursBySideId[ side.id ]) {
 				this.neighboursBySideId[ side.id ].neighboursBySideId[ side.opposite.id ] = undefined
 			}
 		})
-		this.neighboursBySideId = undefined
+		this.neighboursBySideId = []
 	}
 	toString() {
 		return `Chunk(${this.id})`
@@ -82,13 +65,8 @@ class Chunk {
 	attachChunkNeighbour(side, chunk) {
 		this.neighboursBySideId[ side.id ] = chunk
 	}
-	update() {
-		// incremental redraw
-		if (this.incrementalRedraw.active) {
-			this.redrawIncrementally()
-		}
-
-		this.chunkMeshManager.update()
+	update(renderBudget) {
+		return this.chunkMeshManager.update(renderBudget) // clean up dirty quads and push updates to gpu
 	}
 
 
@@ -108,7 +86,7 @@ class Chunk {
 		this.chunkMeshManager.removeQuad(quadId)
 		this.quadIdsByBlockAndSide[ blockPos.i * 6 + side.id ] = undefined
 	}
-	redrawFaceAO(blockPos, side) {
+	redrawFace(blockPos, side) {
 		// todo: avoid buffer updates if the quad doesn't change (n.b. an existing quad may need to be flipped!)
 		var quadId = this.quadIdsByBlockAndSide[ blockPos.i * 6 + side.id ]
 		if (quadId) {
@@ -119,17 +97,57 @@ class Chunk {
 
 
 
+//	drawAllBlocksIncrementally() {
+//		for (var incrementalCount = 0; incrementalCount < 64; incrementalCount += 1) {
+//
+//			var incCoords = this.incrementalRedraw.coords
+//			var blockPos = new BlockPos(this, incCoords[0], incCoords[1], incCoords[2])
+//
+//			if (blockPos.isOpaque()) {
+//
+//				Sides.each(side => {
+//					
+//					var adjacentPos = blockPos.getAdjacentBlockPos(side)
+//					if (adjacentPos.isTransparent()) {
+//						this.drawFace(blockPos, side)
+//					}
+//					
+//				})
+//			}
+//
+//			incCoords[0] += 1
+//			if (incCoords[0] === CHUNK_SIZE) {
+//				incCoords[0] -= CHUNK_SIZE
+//				incCoords[1] += 1
+//				if (incCoords[1] === CHUNK_SIZE) {
+//					incCoords[1] -= CHUNK_SIZE
+//					incCoords[2] += 1
+//					if (incCoords[2] === CHUNK_SIZE) {
+//						this.incrementalRedraw.active = false
+//
+//						this.stitchQuadsForNeighbouringChunks()
+//
+//						//console.log(this.quadCount)
+//
+//						break
+//					}
+//				}
+//			}
+//
+//		}
+//	}
 
 
-	updateBlockData(mainBlockPos, newBlockData) {
+
+	alterOneBlock(mainBlockPos, newBlockData) {
 		var wasOpaque = mainBlockPos.isOpaque()
 		this.blockData[ mainBlockPos.i ] = newBlockData
 		var isOpaque = mainBlockPos.isOpaque()
 
 		if (wasOpaque && isOpaque) {
 			// hack to deal with block type changing without switching to air first
-			this.updateBlockData(mainBlockPos, 0)
-			this.updateBlockData(mainBlockPos, newBlockData)
+			this.alterOneBlock(mainBlockPos, 0)
+			this.alterOneBlock(mainBlockPos, newBlockData)
 			return
 		}
 
@@ -188,7 +206,7 @@ class Chunk {
 			if (!edgeBlockPos.isLoaded) { continue }
 
 			if (edgeBlockPos.isOpaque()) {
-				edgeBlockPos.chunk.redrawFaceAO(edgeBlockPos, tangent.side.opposite) // potential optimization: if mainBlock is being added, we only need to make sure two vertices are darkened; not sure about optimizing mainBlock removal
+				edgeBlockPos.chunk.redrawFace(edgeBlockPos, tangent.side.opposite) // potential optimization: if mainBlock is being added, we only need to make sure two vertices are darkened; not sure about optimizing mainBlock removal
 			}
 			else {
 
@@ -199,7 +217,7 @@ class Chunk {
 					if (!cornerBlockPos.isLoaded) { continue }
 
 					if (cornerBlockPos.isOpaque()) {
-						cornerBlockPos.chunk.redrawFaceAO(cornerBlockPos, tangentTangentSide.opposite)
+						cornerBlockPos.chunk.redrawFace(cornerBlockPos, tangentTangentSide.opposite)
 					}
 
 				}
@@ -227,9 +245,9 @@ class Chunk {
 				}
 				
 				
-				var coords = [undefined, undefined, 0, Chunk.size-1]
-				for (coords[0] = 0; coords[0] < Chunk.size; coords[0] += 1) {       // XXX: assumes cubical chunks!
-					for (coords[1] = 0; coords[1] < Chunk.size; coords[1] += 1) {     // XXX: assumes cubical chunks!
+				var coords = [undefined, undefined, 0, CHUNK_SIZE-1]
+				for (coords[0] = 0; coords[0] < CHUNK_SIZE; coords[0] += 1) {       // XXX: assumes cubical chunks!
+					for (coords[1] = 0; coords[1] < CHUNK_SIZE; coords[1] += 1) {     // XXX: assumes cubical chunks!
 						ourBlockPos.x = coords[ourCoordIndices[0]]
 						ourBlockPos.y = coords[ourCoordIndices[1]]
 						ourBlockPos.z = coords[ourCoordIndices[2]]
@@ -289,49 +307,8 @@ class Chunk {
 		return brightnesses
 	}
 
-	redrawIncrementally() {
-		for (var incrementalCount = 0; incrementalCount < 64; incrementalCount += 1) {
-
-			var incCoords = this.incrementalRedraw.coords
-			var blockPos = new BlockPos(this, incCoords[0], incCoords[1], incCoords[2])
-
-			if (blockPos.isOpaque()) {
-
-				Sides.each(side => {
-					
-					var adjacentPos = blockPos.getAdjacentBlockPos(side)
-					if (adjacentPos.isTransparent()) {
-						this.drawFace(blockPos, side)
-					}
-					
-				})
-			}
-
-			incCoords[0] += 1
-			if (incCoords[0] === Chunk.size) {
-				incCoords[0] -= Chunk.size
-				incCoords[1] += 1
-				if (incCoords[1] === Chunk.size) {
-					incCoords[1] -= Chunk.size
-					incCoords[2] += 1
-					if (incCoords[2] === Chunk.size) {
-						this.incrementalRedraw.active = false
-
-						this.stitchQuadsForNeighbouringChunks()
-
-						//console.log(this.quadCount)
-
-						break
-					}
-				}
-			}
-
-		}
-	}
 }
 
-Chunk.size = 16
-Chunk.sizeCubed = Chunk.size * Chunk.size * Chunk.size
 
 
 
