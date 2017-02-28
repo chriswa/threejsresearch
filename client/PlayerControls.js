@@ -1,11 +1,13 @@
 var PlayerControls = {
 	FLYING: 1,
 	WALKING: 2,
+	
 	MOVE_SPEED: 10,
-	JUMP_IMPULSE: 0.2,
 	GRAVITY: 1,
+	JUMP_IMPULSE: 0.2,
+	NO_CLIP: false,
 
-	init(camera) {
+	init(camera, domElement) {
 		this.camera = camera
 
 		this.mode = this.WALKING
@@ -14,10 +16,8 @@ var PlayerControls = {
 
 		this.pointerLocked = false
 
-		var element = document.body;
-
 		var pointerlockchange = event => {
-			if ( document.pointerLockElement === element || document.mozPointerLockElement === element || document.webkitPointerLockElement === element ) {
+			if ( document.pointerLockElement === domElement || document.mozPointerLockElement === domElement || document.webkitPointerLockElement === domElement ) {
 				this.pointerLocked = true;
 			}
 			else {
@@ -30,17 +30,17 @@ var PlayerControls = {
 		document.addEventListener( 'mozpointerlockchange', pointerlockchange, false );
 		document.addEventListener( 'webkitpointerlockchange', pointerlockchange, false );
 
-		document.addEventListener( 'click', event => {
+		domElement.addEventListener( 'click', event => {
 			if (!this.pointerLocked) {
-				element.requestPointerLock = element.requestPointerLock || element.mozRequestPointerLock || element.webkitRequestPointerLock;
-				element.requestPointerLock();
+				domElement.requestPointerLock = domElement.requestPointerLock || domElement.mozRequestPointerLock || domElement.webkitRequestPointerLock;
+				domElement.requestPointerLock();
 			}
 			else {
 				camera.dispatchEvent( { type: 'click', button: event.button } )
 			}
 		}, false );
 
-		this.fps = new THREE.FirstPersonControls( camera );
+		this.fps = new THREE.FirstPersonControls( camera, domElement );
 		this.fps.movementSpeed = 0;
 		//this.fps.lookSpeed     = 0.5;
 		this.fps.noFly         = false;
@@ -96,9 +96,14 @@ var PlayerControls = {
 			moveDirection.y += this.fallVelocity
 		}
 
-		var hitFloor = World.translatePlayerWithCollisions(this.camera.position, moveDirection, 0.4)
-		if (hitFloor) {
-			this.fallVelocity = 0
+		if (this.NO_CLIP) {
+			this.camera.position.add(moveDirection)
+		}
+		else {
+			var hitFloor = World.translatePlayerWithCollisions(this.camera.position, moveDirection, 0.4)
+			if (hitFloor) {
+				this.fallVelocity = 0
+			}
 		}
 	},
 }

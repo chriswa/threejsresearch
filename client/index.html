@@ -16,6 +16,7 @@
 		<script src="lib/lodash.js"></script>
 		<script src="lib/util.js"></script>
 		<script src="RLE.js"></script>
+		<script src="lib/dat.gui.min.js"></script>
 		<script src="lib/stats.js"></script>
 		<script src="lib/perlin.js"></script>
 		<script src="lib/three.js"></script>
@@ -140,9 +141,28 @@
 				var clock = new THREE.Clock()
 				var totalElapsedTime = 0
 
-				PlayerControls.init(camera)
+				PlayerControls.init(camera, renderer.domElement)
 				PlayerControls.fps.lon = 90
 				PlayerControls.fps.lat = -30
+				
+				var datConfig = {
+					'Movement Mode' : PlayerControls.mode,
+					'Move Speed'    : PlayerControls.MOVE_SPEED,
+					'Jump Impulse'  : PlayerControls.JUMP_IMPULSE,
+					'No Clip'       : PlayerControls.NO_CLIP,
+					'Gravity'       : PlayerControls.GRAVITY,
+					'Reset'         : () => { camera.position.set(0, 16, 0) ; PlayerControls.fallVelocity = 0 },
+				}
+				var gui = new dat.GUI()
+				var f1 = gui.addFolder('Movement')
+				f1.open()
+				f1.add(datConfig, 'Movement Mode', { Walking: PlayerControls.WALKING, Flying: PlayerControls.FLYING }) .onChange(v => PlayerControls.mode = parseInt(v))
+				f1.add(datConfig, 'Move Speed').min(0).max(100)       .onChange(v => PlayerControls.MOVE_SPEED = v)
+				f1.add(datConfig, 'Jump Impulse').min(0).max(2)       .onChange(v => PlayerControls.JUMP_IMPULSE = v)
+				f1.add(datConfig, 'No Clip')                          .onChange(v => PlayerControls.NO_CLIP = v)
+				f1.add(datConfig, 'Gravity').min(0).max(10)           .onChange(v => PlayerControls.GRAVITY = v)
+				f1.add(datConfig, 'Reset')
+
 
 				var blockOutlineVerts = []
 				var blockOutlineOffset = 0.01
