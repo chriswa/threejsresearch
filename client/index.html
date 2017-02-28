@@ -5,7 +5,7 @@
 		<title>Proto</title>
 		<style>
 			html, body { margin: 0; overflow: hidden; }
-			canvas { width: 100%; height: 100% }
+			canvas { width: 100%; height: 100%; display: block; }
 			#coords { position: absolute; top: 0; right: 0; color: white; background-color: black; text-align: right; padding: 2px; }
 			#crosshair { width: 10px; height: 20px; position: absolute; top: 50%; left: 50%; margin: -10px 0 0 -5px; color: white; text-align: center; }
 		</style>
@@ -156,11 +156,12 @@
 				var gui = new dat.GUI()
 				var f1 = gui.addFolder('Movement')
 				f1.open()
-				f1.add(datConfig, 'Movement Mode', { Walking: PlayerControls.WALKING, Flying: PlayerControls.FLYING }) .onChange(v => PlayerControls.mode = parseInt(v))
-				f1.add(datConfig, 'Move Speed').min(0).max(100)       .onChange(v => PlayerControls.MOVE_SPEED = v)
-				f1.add(datConfig, 'Jump Impulse').min(0).max(2)       .onChange(v => PlayerControls.JUMP_IMPULSE = v)
-				f1.add(datConfig, 'No Clip')                          .onChange(v => PlayerControls.NO_CLIP = v)
-				f1.add(datConfig, 'Gravity').min(0).max(10)           .onChange(v => PlayerControls.GRAVITY = v)
+				f1.add(datConfig, 'Movement Mode', { Walking: PlayerControls.WALKING, Flying: PlayerControls.FLYING })
+				                                  .onChange(v => PlayerControls.mode = parseInt(v))
+				f1.add(datConfig, 'Move Speed')   .onChange(v => PlayerControls.MOVE_SPEED = v)
+				f1.add(datConfig, 'Jump Impulse') .onChange(v => PlayerControls.JUMP_IMPULSE = v)
+				f1.add(datConfig, 'No Clip')      .onChange(v => PlayerControls.NO_CLIP = v)
+				f1.add(datConfig, 'Gravity')      .onChange(v => PlayerControls.GRAVITY = v)
 				f1.add(datConfig, 'Reset')
 
 
@@ -180,9 +181,7 @@
 				var blockOutlineMaterial = new THREE.LineBasicMaterial( { color: 0xffffff, linewidth: 1, transparent: true } )
 				blockOutline = new THREE.Line( blockOutlineGeometry, blockOutlineMaterial )
 				scene.add( blockOutline )
-
-
-
+				
 				var render = function () {
 					stats.elapsed.begin()
 					var dt = Math.min(clock.getDelta(), 0.2)
@@ -225,5 +224,5 @@
 			}
 
 		</script>
-	</body>
+</body>
 </html>
