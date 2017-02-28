@@ -67,11 +67,11 @@ class BlockPos {
 	}
 	add(dx, dy, dz) {
 		if (dy > 0) { this.y += dy; while (this.y > CHUNK_SIZE-1) { this.chunk = this.chunk.neighboursBySideId[ Sides.TOP.id    ]; this.y -= CHUNK_SIZE; if (!this.chunk) { this.corrupt() ; return } } }
-		if (dy < 0) { this.y += dy; while (this.y < 0)             { this.chunk = this.chunk.neighboursBySideId[ Sides.BOTTOM.id ]; this.y += CHUNK_SIZE; if (!this.chunk) { this.corrupt() ; return } } }
+		if (dy < 0) { this.y += dy; while (this.y < 0)            { this.chunk = this.chunk.neighboursBySideId[ Sides.BOTTOM.id ]; this.y += CHUNK_SIZE; if (!this.chunk) { this.corrupt() ; return } } }
 		if (dz > 0) { this.z += dz; while (this.z > CHUNK_SIZE-1) { this.chunk = this.chunk.neighboursBySideId[ Sides.NORTH.id  ]; this.z -= CHUNK_SIZE; if (!this.chunk) { this.corrupt() ; return } } }
-		if (dz < 0) { this.z += dz; while (this.z < 0)             { this.chunk = this.chunk.neighboursBySideId[ Sides.SOUTH.id  ]; this.z += CHUNK_SIZE; if (!this.chunk) { this.corrupt() ; return } } }
+		if (dz < 0) { this.z += dz; while (this.z < 0)            { this.chunk = this.chunk.neighboursBySideId[ Sides.SOUTH.id  ]; this.z += CHUNK_SIZE; if (!this.chunk) { this.corrupt() ; return } } }
 		if (dx > 0) { this.x += dx; while (this.x > CHUNK_SIZE-1) { this.chunk = this.chunk.neighboursBySideId[ Sides.EAST.id   ]; this.x -= CHUNK_SIZE; if (!this.chunk) { this.corrupt() ; return } } }
-		if (dx < 0) { this.x += dx; while (this.x < 0)             { this.chunk = this.chunk.neighboursBySideId[ Sides.WEST.id   ]; this.x += CHUNK_SIZE; if (!this.chunk) { this.corrupt() ; return } } }
+		if (dx < 0) { this.x += dx; while (this.x < 0)            { this.chunk = this.chunk.neighboursBySideId[ Sides.WEST.id   ]; this.x += CHUNK_SIZE; if (!this.chunk) { this.corrupt() ; return } } }
 		this.recalculateIndex()
 	}
 	corrupt() {

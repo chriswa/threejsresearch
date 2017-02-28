@@ -15,8 +15,10 @@ class ChunkGenWorker {
 	}
 }
 
+var estimatedLogicalCoresAvailable = (navigator.hardwareConcurrency || 4) - 2
+
 var ChunkGenWorkerManager = {
-	workerCount: 4,
+	workerCount: estimatedLogicalCoresAvailable,
 	availableWorkers: [],
 	queuedTasks: [],
 	init() {
@@ -71,7 +73,7 @@ var World = {
 		var chunkId = this.getChunkId(chunkPos)
 		this.chunksQueued[chunkId] = true
 		
-		// acquire a Chunk
+		// acquire a Chunk object (complete with array buffers)
 		var chunk = ChunkPool.acquire()
 
 		var request = {}
@@ -88,20 +90,15 @@ var World = {
 		request.quadIdsByBlockAndSideBuffer = chunk.quadIdsByBlockAndSide.buffer,
 		transferableObjects.push( request.quadIdsByBlockAndSideBuffer )
 
-		// transfer reusable chunk vertexBuffer buffers 
+		// transfer* reusable chunk vertexBuffer buffers 
 		request.reusableVertexBuffers = []
 		if (ChunkVertexBufferPool.pool.length) {
 			request.reusableVertexBuffers.push(ChunkVertexBufferPool.pool.pop())
 		}
 		transferableObjects.concat( request.reusableVertexBuffers )
 
-		//console.log(`World.queueChunkLoad is sending ${request.reusableVertexBuffers.length} reusableVertexBuffers`)
-
 		// send the request to a web worker
 		ChunkGenWorkerManager.queueTask(request, transferableObjects, response => {
-
-			//console.log(`World.queueChunkLoad got back ${response.prefilledVertexBuffers.length} prefilledVertexBuffers and ${response.unusedVertexBuffers.length} unusedVertexBuffers`)
-
 
 			// put the chunk in our list of loaded chunks
 			this.chunks[ chunkId ] = chunk
@@ -182,9 +179,34 @@ var World = {
 			this.queueChunkLoad(chunkPos)
 		})
 	},
-	raycast(ray, max_d) { // ray.direction must be normalized // https://github.com/andyhall/fast-voxel-raycast/
-		var origin = ray.origin
-		var direction = ray.direction // normalized
+	translatePlayerWithCollisions(pos, moveVector, halfWidth) {
+		
+		//var blockPos = World.getBlockPosFromWorldPoint(origin)
+
+		var translate = function(result) {
+			pos.x += result[0]
+			pos.y += result[1]
+			pos.z += result[2]
+		}
+
+		var getVoxel = function(x,y,z) { return World.getBlockPosFromWorldPoint({ x:x, y:y, z:z }).isOpaque() } // TODO: optimize me, similarly to raycast(): use one or more existing blockPos objects and add() them to move them around
+		var box = { base: [pos.x - halfWidth, pos.y - 1.6, pos.z - halfWidth], max: [pos.x + halfWidth, pos.y + 0.2, pos.z + halfWidth], translate: translate }
+		var vector = [ moveVector.x, moveVector.y, moveVector.z ]
+
+		var hitFloor = false
+
+		var dist = voxelAabbSweep( getVoxel, box, vector, function(dist, axis, dir, vec) {
+			if (axis === 1 && moveVector.y < 0) { hitFloor = true }
+			vec[axis] = 0 // halt movement along this axis, but slide along other axes
+			return false // continue sweep
+		})
+
+		return hitFloor
+		
+	},
+
+	// andyhall's fast-voxel-raycast https://github.com/andyhall/fast-voxel-raycast/ with some minor adaptions
+	raycast(origin, direction, max_d) { // direction must be normalized
 
 		var blockPos = World.getBlockPosFromWorldPoint(origin)
 
@@ -197,14 +219,16 @@ var World = {
 
 		var t = 0.0
 				, floor = Math.floor
-				, ix = floor(px) | 0
-				, iy = floor(py) | 0
-				, iz = floor(pz) | 0
+				, ceil = Math.ceil
 
 				, stepx = (dx > 0) ? 1 : -1
 				, stepy = (dy > 0) ? 1 : -1
 				, stepz = (dz > 0) ? 1 : -1
 				
+				, ix = floor(px)
+				, iy = floor(py)
+				, iz = floor(pz)
+
 			// dx,dy,dz are already normalized
 				, txDelta = Math.abs(1 / dx)
 				, tyDelta = Math.abs(1 / dy)
@@ -223,7 +247,8 @@ var World = {
 
 		// main loop along raycast vector
 		while (t <= max_d) {
-			
+
+
 			if (!blockPos.isLoaded) {
 				return undefined
 			}
@@ -247,7 +272,7 @@ var World = {
 				}
 				return { blockPos: blockPos, dist: t, side: side }
 			}
-			
+
 			// advance t to next nearest voxel boundary
 			if (txMax < tyMax) {
 				if (txMax < tzMax) {
@@ -278,6 +303,7 @@ var World = {
 					steppedIndex = 2
 				}
 			}
+
 		}
 		// max_d exceeded
 		return undefined

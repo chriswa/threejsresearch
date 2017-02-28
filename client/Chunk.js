@@ -75,9 +75,11 @@ class Chunk {
 
 
 	drawFace(blockPos, side) {
-		var uvs = blockPos.getBlockType().textureSides[side.id]
-		var brightnesses = this.calculateVertexColours(blockPos, side)
-		var quadId = this.chunkMeshManager.addQuad(blockPos, side, uvs, brightnesses)
+		var blockType = blockPos.getBlockType()
+		var uvs = blockType.textureSides[side.id]
+		var rgb = blockType.colourSides[side.id]
+		var brightnesses = this.calculateVertexColours(blockPos, side, rgb)
+		var quadId = this.chunkMeshManager.addQuad(blockPos, side, uvs, brightnesses, rgb)
 		this.quadIdsByBlockAndSide[blockPos.i * 6 + side.id] = quadId
 	}
 	eraseFace(blockPos, side) {
@@ -275,8 +277,7 @@ class Chunk {
 
 	calculateVertexColours(blockPos, side) {
 		// determine ambient occlusion
-		var brightnesses = [1, 1, 1, 1]
-		var occludedBrightness = 0.7
+		var brightnesses = [0, 0, 0, 0]
 
 		var adjacentPos = blockPos.getAdjacentBlockPos(side)
 
@@ -288,9 +289,8 @@ class Chunk {
 			if (!tangentPos) { continue }
 
 			if (tangentPos.isOpaque()) {
-				brightnesses[tangentIndex] = occludedBrightness
-				brightnesses[(tangentIndex + 1) % 4] = occludedBrightness
-				continue // optimization: no need to check diagonal(s)
+				brightnesses[tangentIndex]           += 2
+				brightnesses[(tangentIndex + 1) % 4] += 2
 			}
 
 			// diagonal ambient occlusion
@@ -301,9 +301,15 @@ class Chunk {
 			if (!tangentDiagonalPos) { continue }
 
 			if (tangentDiagonalPos.isOpaque()) {
-				brightnesses[(tangentIndex + 1) % 4] = occludedBrightness
+				brightnesses[(tangentIndex + 1) % 4] += 1
 			}
 		}
+
+		var occludedBrightnesses = [1, 0.7, 0.7, 0.6, 0.5, 0.5]
+		for (var i = 0; i < 4; i += 1) {
+			brightnesses[i] = occludedBrightnesses[brightnesses[i]]
+		}
+
 		return brightnesses
 	}
 

@@ -4,7 +4,16 @@
 // }, false);
 // worker.postMessage({'cmd': 'start', 'msg': 'Hi'}); // Start the worker.
 
-importScripts('lodash.js', 'perlin.js', 'three.js', 'constants.js', 'Pool.js', 'Sides.js', 'BlockTypes.js', 'QuadWriter.js')
+importScripts(
+	'lib/lodash.js',
+	'lib/perlin.js',
+	'lib/three.js',
+	'constants.js',
+	'Pool.js',
+	'Sides.js',
+	'BlockTypes.js',
+	'QuadWriter.js'
+)
 
 
 noise.seed(2)
@@ -16,12 +25,12 @@ var borderedTransparencyLookup = new Uint8Array( borderedSize * borderedSize * b
 
 
 self.addEventListener('message', function(e) {
-	var data = e.data
+	var request = e.data
 
-	var chunkBlockData        = new Uint16Array(data.blockDataBuffer)
-	var chunkPos              = data.chunkPos
-	var quadIdsByBlockAndSide = new Uint16Array(data.quadIdsByBlockAndSideBuffer)
-	var reusableVertexBuffers = data.reusableVertexBuffers
+	var chunkBlockData        = new Uint16Array(request.blockDataBuffer)
+	var chunkPos              = request.chunkPos
+	var quadIdsByBlockAndSide = new Uint16Array(request.quadIdsByBlockAndSideBuffer)
+	var reusableVertexBuffers = request.reusableVertexBuffers
 
 	// generate the block data (perlin noise!)
 	loadChunkData(chunkPos, chunkBlockData, borderedTransparencyLookup)
@@ -51,6 +60,8 @@ self.addEventListener('message', function(e) {
 	
 	response.unusedVertexBuffers = vertexBufferPool.pool
 	transferableObjects.concat(response.unusedVertexBuffers)
+
+	response.callbackId = request.callbackId
 	
 	self.postMessage(response, transferableObjects) // transfer with "Transferable Objects". the 'version' from the calling context is no longer available once transferred to the new context
 
@@ -74,13 +85,13 @@ class ChunkPrewriter {
 		this.vertexBuffers.push(vertexBuffer)
 		return vertexBuffer
 	}
-	addQuad(blockPos, side, uvs, brightnesses) {
+	addQuad(blockPos, side, uvs, brightnesses, rgb) {
 		var quadId = this.quadCount
 		this.quadCount += 1
 		if (this.quadCount > this.vertexBuffers.length * maxQuadsPerMesh) {
 			this.currentVertexBuffer = this.addVertexBuffer()
 		}
-		QuadWriter.draw(this.currentVertexBuffer, quadId % maxQuadsPerMesh, blockPos, side, uvs, brightnesses)
+		QuadWriter.draw(this.currentVertexBuffer, quadId % maxQuadsPerMesh, blockPos, side, uvs, brightnesses, rgb)
 		var blockPosIndex = blockPos.x * CHUNK_SIZE_SQUARED + blockPos.y * CHUNK_SIZE + blockPos.z
 		this.quadIdsByBlockAndSide[blockPosIndex * 6 + side.id] = quadId
 	}
@@ -114,11 +125,12 @@ class ChunkPrewriter {
 
 								var blockType = BlockTypesById[this.blockData[mainBlockIndex]]
 								var uvs = blockType.textureSides[side.id]
+								var rgb = blockType.colourSides[side.id]
 
 								// determine vertex colours (AO)
 								var brightnesses = this.calculateVertexColours(airBlockPos, side)
 
-								this.addQuad(solidBlockPos, side, uvs, brightnesses)
+								this.addQuad(solidBlockPos, side, uvs, brightnesses, rgb)
 							}
 							
 						}
@@ -140,8 +152,7 @@ class ChunkPrewriter {
 
 	calculateVertexColours(airBlockPos, side) {
 		// determine ambient occlusion
-		var brightnesses = [1, 1, 1, 1]
-		var occludedBrightness = 0.7
+		var brightnesses = [0, 0, 0, 0]
 
 		// check for occlusion at right angles to the block's normal
 		for (var tangentIndex = 0; tangentIndex < 4; tangentIndex += 1) {
@@ -150,9 +161,8 @@ class ChunkPrewriter {
 			this._edgeOccludingBlockPos.addVectors(airBlockPos, tangentSide.deltaVector3)
 
 			if (!this.isTransparent(this._edgeOccludingBlockPos)) {
-				brightnesses[tangentIndex] = occludedBrightness
-				brightnesses[(tangentIndex + 1) % 4] = occludedBrightness
-				continue // optimization: skip corners, since both verts which could be affected are already in shadow
+				brightnesses[tangentIndex]           += 2
+				brightnesses[(tangentIndex + 1) % 4] += 2
 			}
 
 			// right angle again
@@ -161,9 +171,15 @@ class ChunkPrewriter {
 			this._cornerOccludingBlockPos.addVectors(this._edgeOccludingBlockPos, diagonalTangentSide.deltaVector3)
 
 			if (!this.isTransparent(this._cornerOccludingBlockPos)) {
-				brightnesses[(tangentIndex + 1) % 4] = occludedBrightness
+				brightnesses[(tangentIndex + 1) % 4] += 1
 			}
 		}
+
+		var occludedBrightnesses = [1, 0.7, 0.7, 0.6, 0.5, 0.5]
+		for (var i = 0; i < 4; i += 1) {
+			brightnesses[i] = occludedBrightnesses[brightnesses[i]]
+		}
+
 		return brightnesses
 	}
 }
@@ -188,14 +204,15 @@ function loadChunkData(chunkPos, chunkBlockData, borderedTransparencyLookup) {
 				if (sampleY < -6) {
 						blockData = BlockTypesByName.stone.id
 				}
-				else if (sampleY > 12) {
+				else if (sampleY > 20) {
 						blockData = BlockTypesByName.air.id
 				}
 				else {
-					if (noise.simplex3(sampleX / 20, sampleY / 50, sampleZ / 20) > sampleY / 5) {
+					if (noise.simplex3(sampleX / 80, sampleY / 200, sampleZ / 80) > sampleY / 5) {
 						blockData = BlockTypesByName.dirt.id
 					}
-					if (noise.simplex3((sampleX + 874356) / 10, sampleY / 50, (sampleZ + 874356) / 10) > ((sampleY + 0) / 10)) {
+					if (noise.simplex3((sampleX + 874356) / 20, (sampleY + 63456) / 40, (sampleZ + 475672) / 20) > ((sampleY + 0) / 10) && 
+						  noise.simplex3((sampleX + 3452234) / 20, (sampleY + 567834) / 40, (sampleZ + 464562) / 20) > ((sampleY + 0) / 10)) {
 						blockData = BlockTypesByName.stone.id
 					}
 				}

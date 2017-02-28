@@ -71,7 +71,7 @@ class ChunkMeshManager {
 	getChunkMeshForQuad(quadId) {
 		return this.chunkMeshes[ Math.floor( quadId / maxQuadsPerMesh ) ]
 	}
-	addQuad(blockPos, side, uvs, brightnesses) {
+	addQuad(blockPos, side, uvs, brightnesses, rgb) {
 
 		var quadId, chunkMesh
 		// prefer to draw over dirty quads, which will need to be updated anyway
@@ -95,7 +95,7 @@ class ChunkMeshManager {
 		}
 		chunkMesh.quadsToPushToGpu.push(quadId % maxQuadsPerMesh)
 
-		QuadWriter.draw(chunkMesh.vertexArray, quadId % maxQuadsPerMesh, blockPos, side, uvs, brightnesses)
+		QuadWriter.draw(chunkMesh.vertexArray, quadId % maxQuadsPerMesh, blockPos, side, uvs, brightnesses, rgb)
 
 		return quadId
 	}

@@ -4,11 +4,12 @@
   "description": "",
   "main": "three.js",
   "scripts": {
-    "start": "node_modules\\.bin\\http-server . -p 9999"
+    "start": "node server/server.js"
   },
   "author": "",
   "license": "ISC",
   "dependencies": {
-    "http-server": "^0.9.0"
+    "lodash": "^4.17.4",
+    "websocket": "^1.0.24"
   }
 }

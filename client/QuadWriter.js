@@ -1,7 +1,7 @@
 var QuadWriter = {
 	vertexSize: 8,
 	quadSize: 8 * 4,
-	draw(buffer, quadBufferIndex, blockPos, side, uvs, brightnesses) {
+	draw(buffer, quadBufferIndex, blockPos, side, uvs, brightnesses, rgb) {
 		var vertexOrder = this.getVertexOrderAfterQuadFlipping(brightnesses)
 		var cursor = quadBufferIndex * this.quadSize
 		for (var i = 0; i < 4; i += 1) {
@@ -11,9 +11,9 @@ var QuadWriter = {
 			buffer[ cursor++ ] = blockPos.z + side.verts[ vertexIndex * 3 + 2 ]
 			buffer[ cursor++ ] = uvs[ vertexIndex * 2 + 0 ]
 			buffer[ cursor++ ] = uvs[ vertexIndex * 2 + 1 ]
-			buffer[ cursor++ ] = brightnesses[vertexIndex]
-			buffer[ cursor++ ] = brightnesses[vertexIndex]
-			buffer[ cursor++ ] = brightnesses[vertexIndex]
+			buffer[ cursor++ ] = rgb[0] * brightnesses[vertexIndex]
+			buffer[ cursor++ ] = rgb[1] * brightnesses[vertexIndex]
+			buffer[ cursor++ ] = rgb[2] * brightnesses[vertexIndex]
 		}
 	},
 	clear(buffer, quadBufferIndex) {
