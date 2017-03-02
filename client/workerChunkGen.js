@@ -186,6 +186,7 @@ class ChunkPrewriter {
 
 
 function loadChunkData(chunkPos, chunkBlockData, borderedTransparencyLookup) {
+	var sampleVector = new THREE.Vector3()
 	var chunkBlockIndex = 0
 	var borderedTransparencyLookupIndex = 0
 	for (var x = -1; x < CHUNK_SIZE + 1; x += 1) {
@@ -195,27 +196,11 @@ function loadChunkData(chunkPos, chunkBlockData, borderedTransparencyLookup) {
 			for (var z = -1; z < CHUNK_SIZE + 1; z += 1) {
 				var isBorderZ = z < 0 || z === CHUNK_SIZE
 				
-				var sampleX = x + chunkPos.x * CHUNK_SIZE
-				var sampleY = y + chunkPos.y * CHUNK_SIZE
-				var sampleZ = z + chunkPos.z * CHUNK_SIZE
+				sampleVector.x = x + chunkPos.x * CHUNK_SIZE
+				sampleVector.y = y + chunkPos.y * CHUNK_SIZE
+				sampleVector.z = z + chunkPos.z * CHUNK_SIZE
 
-				var blockData = 0
-
-				if (sampleY < -6) {
-						blockData = BlockTypesByName.stone.id
-				}
-				else if (sampleY > 20) {
-						blockData = BlockTypesByName.air.id
-				}
-				else {
-					if (noise.simplex3(sampleX / 80, sampleY / 200, sampleZ / 80) > sampleY / 5) {
-						blockData = BlockTypesByName.dirt.id
-					}
-					if (noise.simplex3((sampleX + 874356) / 20, (sampleY + 63456) / 40, (sampleZ + 475672) / 20) > ((sampleY + 0) / 10) && 
-						  noise.simplex3((sampleX + 3452234) / 20, (sampleY + 567834) / 40, (sampleZ + 464562) / 20) > ((sampleY + 0) / 10)) {
-						blockData = BlockTypesByName.stone.id
-					}
-				}
+				var blockData = terrainGen(sampleVector)
 
 				if (!isBorderX && !isBorderY && !isBorderZ) {
 					chunkBlockData[chunkBlockIndex] = blockData;
@@ -238,4 +223,79 @@ function loadChunkData(chunkPos, chunkBlockData, borderedTransparencyLookup) {
 		}
 	}
 }
+
+
+
+
+var fbm_counter = 0
+function createFBM(scale, octaves, persistance, lacunarity, offsetIn) {
+	var workVector  = new THREE.Vector3()
+	var offset      = offsetIn
+	if (!offset) {
+		fbm_counter += 11
+		offset = new THREE.Vector3(
+			noise.simplex3( fbm_counter, 0, 0 ) * 1000,
+			noise.simplex3( 0, fbm_counter, 0 ) * 1000,
+			noise.simplex3( 0, 0, fbm_counter ) * 1000
+		)
+	}
+	return (sampleVector) => {
+		var amplitude = 1
+		var frequency = 1
+		var sum = 0
+		var work = workVector
+		work.copy(sampleVector).add(offset).divideScalar(scale)
+		for (var i = 0; i < octaves; i += 1) {
+			work.multiplyScalar(frequency)
+			sum += amplitude * noise.simplex3( work.x, work.y, work.z )
+			amplitude *= persistance
+			frequency *= lacunarity
+		}
+		return sum
+	}
+}
+
+var fbm1 = createFBM(500, 4, 0.5, 1.87)
+var fbm2 = createFBM(1, 4, 0.5, 1.87)
+var fbm3 = createFBM(1, 4, 0.5, 1.87)
+
+
+function terrainGen(sample) {
+	
+	//if (fbm1(sample) > sample.y / 50) {
+	//	return BlockTypesByName.stone.id
+	//}
+	//return BlockTypesByName.air.id
+	
+	var x = sample.x
+	var y = sample.y
+	var z = sample.z
+	
+	var dd = 100
+	var m = noise.simplex3((x + 245 ) / dd, (y + 78345) / dd, (z - 23457 ) / dd)
+	var n = noise.simplex3((x + 4674) / dd, (y - 453  ) / dd, (z - 861   ) / dd)
+	var o = noise.simplex3((x + 452 ) / dd, (y - 23523) / dd, (z - 973456) / dd)
+	
+	x += m * 100
+	y += n * 100
+	z += o * 100
+	
+	if (noise.simplex3((x + 874356) / 20, (y + 63456) / 40, (z + 475672) / 20) > ((y + 0) / 10)) {
+		return BlockTypesByName.stone.id
+	}
+	
+	if (noise.simplex3(x / 80, y / 20, z / 80) > y / 5) {
+		return BlockTypesByName.dirt.id
+	}
+	
+	return BlockTypesByName.air.id
+}
+
+
+
+
+
+
+
+
 

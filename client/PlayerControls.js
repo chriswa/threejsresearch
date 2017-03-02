@@ -2,7 +2,7 @@ var PlayerControls = {
 	FLYING: 1,
 	WALKING: 2,
 	
-	MOVE_SPEED: 10,
+	MOVE_SPEED: 100,
 	GRAVITY: 1,
 	JUMP_IMPULSE: 0.2,
 	NO_CLIP: false,
@@ -10,7 +10,7 @@ var PlayerControls = {
 	init(camera, domElement) {
 		this.camera = camera
 
-		this.mode = this.WALKING
+		this.mode = this.FLYING
 
 		this.fallVelocity = 0
 
