@@ -5,7 +5,7 @@ var PlayerControls = {
 	MOVE_SPEED: 100,
 	GRAVITY: 1,
 	JUMP_IMPULSE: 0.2,
-	NO_CLIP: false,
+	NO_CLIP: true,
 
 	init(camera, domElement) {
 		this.camera = camera
@@ -62,10 +62,10 @@ var PlayerControls = {
 	update(dt) {
 		this.fps.update(dt)
 
-		camera.updateMatrixWorld() // prevent raycast from lagging by one frame
+		this.camera.updateMatrixWorld() // prevent raycast from lagging by one frame
 
-		var blockPos = World.getBlockPosFromWorldPoint(camera.position)
-		if (!blockPos.isLoaded) { return } // if chunk isn't loaded, don't move!
+		var blockPos = World.getBlockPosFromWorldPoint(this.camera.position)
+		if (!blockPos.isLoaded && !this.NO_CLIP) { return } // if chunk isn't loaded, don't move!
 
 
 		var moveMagnitude = this.MOVE_SPEED * dt

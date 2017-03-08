@@ -1,55 +1,5 @@
-class ChunkGenWorker {
-	constructor(id) {
-		this.id = id
-		this.callback = undefined
-		this.worker = new Worker('workerChunkGen.js')
-
-		this.worker.addEventListener('message', e => {
-			this.callback(e.data)
-		})
-	}
-	start(payload, transferableObjects, callback) {
-		this.callback = callback
-		payload.workerId = this.id 
-		this.worker.postMessage(payload, transferableObjects) // transfer with "Transferable Objects"
-	}
-}
-
-var estimatedLogicalCoresAvailable = (navigator.hardwareConcurrency || 4) - 2
-
-var ChunkGenWorkerManager = {
-	workerCount: estimatedLogicalCoresAvailable,
-	availableWorkers: [],
-	queuedTasks: [],
-	init() {
-		for (var i = 0; i < this.workerCount; i += 1) {
-			this.availableWorkers.push(new ChunkGenWorker(i))
-		}
-	},
-	queueTask(payload, transferableObjects, callback) {
-		this.queuedTasks.push({ payload, transferableObjects, callback })
-		this.processQueue()
-	},
-	processQueue() {
-		while (this.availableWorkers.length > 0 && this.queuedTasks.length > 0) {
-			var task = this.queuedTasks.shift()
-			var worker = this.availableWorkers.pop()
-			this.startWorker(worker, task)
-		}
-	},
-	startWorker(worker, task) {
-		worker.start(task.payload, task.transferableObjects, payload => {
-			this.availableWorkers.push(worker)
-			this.processQueue()
-			task.callback(payload)
-		})
-	},
-}
-ChunkGenWorkerManager.init()
-
 var World = {
 	chunks: {},
-	chunksQueued: {},
 	getBlockPosFromWorldPoint(p) {
 		var ix = Math.floor(p.x)
 		var iy = Math.floor(p.y)
@@ -67,62 +17,20 @@ var World = {
 	getChunkIdFromCoords(cx, cy, cz) {
 		return cx + ',' + cy + ',' + cz
 	},
-	queueChunkLoad(chunkPos) {
+	addChunk(chunk) {
+		// put the chunk in our list of loaded chunks
+		this.chunks[ chunk.id ] = chunk
 
-		// set a semaphore to block additional queueChunkLoad calls for this chunk until this one completes
-		var chunkId = this.getChunkId(chunkPos)
-		this.chunksQueued[chunkId] = true
-		
-		// acquire a Chunk object (complete with array buffers)
-		var chunk = ChunkPool.acquire()
-
-		var request = {}
-		var transferableObjects = []
-
-		// send chunkPos
-		request.chunkPos = chunkPos
-
-		// transfer* the chunk's blockData buffer
-		request.blockDataBuffer = chunk.blockData.buffer,
-		transferableObjects.push( request.blockDataBuffer )
-
-		// transfer* the chunk's quadIdsByBlockAndSide buffer
-		request.quadIdsByBlockAndSideBuffer = chunk.quadIdsByBlockAndSide.buffer,
-		transferableObjects.push( request.quadIdsByBlockAndSideBuffer )
-
-		// transfer* reusable chunk vertexBuffer buffers 
-		request.reusableVertexBuffers = []
-		if (ChunkVertexBufferPool.pool.length) {
-			request.reusableVertexBuffers.push(ChunkVertexBufferPool.pool.pop())
-		}
-		transferableObjects.concat( request.reusableVertexBuffers )
-
-		// send the request to a web worker
-		ChunkGenWorkerManager.queueTask(request, transferableObjects, response => {
-
-			// put the chunk in our list of loaded chunks
-			this.chunks[ chunkId ] = chunk
-
-			// attach the chunk to any loaded neighbouring chunks
-			for (var sideId = 0; sideId < 6; sideId += 1) {
-				var side = SidesById[sideId]
-				var neighbourChunkPos = chunkPos.clone().add(side.deltaVector3)
-				var neighbourChunk = this.chunks[ this.getChunkId(neighbourChunkPos) ]
-				if (neighbourChunk) {
-					chunk.attachChunkNeighbour(side, neighbourChunk)
-					neighbourChunk.attachChunkNeighbour(side.opposite, chunk)
-				}
+		// attach the chunk to any loaded neighbouring chunks
+		for (var sideId = 0; sideId < 6; sideId += 1) {
+			var side = SidesById[sideId]
+			var neighbourChunkPos = chunk.chunkPos.clone().add(side.deltaVector3)
+			var neighbourChunk = this.chunks[ this.getChunkId(neighbourChunkPos) ]
+			if (neighbourChunk) {
+				chunk.attachChunkNeighbour(side, neighbourChunk)
+				neighbourChunk.attachChunkNeighbour(side.opposite, chunk)
 			}
-
-			// start the chunk, passing in buffers (blockData, quadIdsByBlockAndSide, and prefilledVertexBuffers) and quadCount
-			chunk.start(chunkPos, response.chunkBlockDataBuffer, response.quadIdsByBlockAndSideBuffer, response.quadCount, response.prefilledVertexBuffers)
-
-			// if we provided too many reusableVertexBuffers in the request, we need to return any unused ones to the pool
-			ChunkVertexBufferPool.pool.concat(response.unusedVertexBuffers)
-
-			// remove our semaphore
-			delete(this.chunksQueued[chunkId])
-		})
+		}
 	},
 	removeChunk(chunk) {
 		chunk.stop()
@@ -133,50 +41,6 @@ var World = {
 		var renderBudget = maxQuadsPerMesh * 1
 		_.each(this.chunks, chunk => {
 			renderBudget = chunk.update(renderBudget)
-		})
-	},
-	loadAndUnloadChunksAroundChunkPos(centreChunkPos, chunkRange) {
-
-		_.each(this.chunks, chunk => chunk.outOfRange = true )
-
-		var chunksToLoad = []
-
-		var chunkLoadCount = 0
-
-		var chunksWithinDistance = 1
-		for (var i = 0; i < voxelSphereAreaByDistance.length; i += 1) {
-			if (voxelSphereAreaByDistance[i][0] > chunkRange) { break }
-			chunksWithinDistance = voxelSphereAreaByDistance[i][1]
-		}
-
-		var cursorChunkPos = new THREE.Vector3()
-		for (var i = 0; i < chunksWithinDistance; i += 1) {
-
-			cursorChunkPos.addVectors(centreChunkPos, sortedVoxelDistances[i])
-			var targetChunkId = this.getChunkId(cursorChunkPos)
-
-			if (this.chunksQueued[targetChunkId]) {
-				continue
-			}
-
-			var alreadyLoadedChunk = this.chunks[targetChunkId]
-			if (alreadyLoadedChunk) {
-				alreadyLoadedChunk.outOfRange = false
-				continue
-			}
-
-			chunksToLoad.push(cursorChunkPos.clone())
-
-		}
-		var chunksToRemove = []
-		_.each(this.chunks, chunk => {
-			if (chunk.outOfRange) {
-				chunksToRemove.push(chunk)
-			}
-		})
-		_.each(chunksToRemove, chunk => this.removeChunk(chunk))
-		_.each(chunksToLoad, chunkPos => {
-			this.queueChunkLoad(chunkPos)
 		})
 	},
 	translatePlayerWithCollisions(pos, moveVector, halfWidth) {

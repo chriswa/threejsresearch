@@ -27,6 +27,8 @@ var borderedTransparencyLookup = new Uint8Array( borderedSize * borderedSize * b
 self.addEventListener('message', function(e) {
 	var request = e.data
 
+	if (request.cancel) { console.log("WORKER IS IGNORING CANCEL MESSAGE") ; return } // TODO
+
 	var chunkBlockData        = new Uint16Array(request.blockDataBuffer)
 	var chunkPos              = request.chunkPos
 	var quadIdsByBlockAndSide = new Uint16Array(request.quadIdsByBlockAndSideBuffer)
@@ -61,8 +63,9 @@ self.addEventListener('message', function(e) {
 	response.unusedVertexBuffers = vertexBufferPool.pool
 	transferableObjects.concat(response.unusedVertexBuffers)
 
-	response.callbackId = request.callbackId
-	
+	response.jobId = request.jobId
+	response.success = true
+
 	self.postMessage(response, transferableObjects) // transfer with "Transferable Objects". the 'version' from the calling context is no longer available once transferred to the new context
 
 }, false);
@@ -200,7 +203,15 @@ function loadChunkData(chunkPos, chunkBlockData, borderedTransparencyLookup) {
 				sampleVector.y = y + chunkPos.y * CHUNK_SIZE
 				sampleVector.z = z + chunkPos.z * CHUNK_SIZE
 
-				var blockData = terrainGen(sampleVector)
+				var blockData = BlockTypesByName.air.id
+
+				if (sampleVector.y < -10) {
+					blockData = BlockTypesByName.obsidian.id
+				}
+				else if (sampleVector.y < 50) {
+					blockData = terrainGen(sampleVector)
+				}
+
 
 				if (!isBorderX && !isBorderY && !isBorderZ) {
 					chunkBlockData[chunkBlockIndex] = blockData;
@@ -228,66 +239,115 @@ function loadChunkData(chunkPos, chunkBlockData, borderedTransparencyLookup) {
 
 
 var fbm_counter = 0
-function createFBM(scale, octaves, persistance, lacunarity, offsetIn) {
-	var workVector  = new THREE.Vector3()
-	var offset      = offsetIn
-	if (!offset) {
-		fbm_counter += 11
-		offset = new THREE.Vector3(
-			noise.simplex3( fbm_counter, 0, 0 ) * 1000,
-			noise.simplex3( 0, fbm_counter, 0 ) * 1000,
-			noise.simplex3( 0, 0, fbm_counter ) * 1000
-		)
+class Noise3d {
+	constructor(scale, offset) {
+		this.scale       = scale
+		this.workVector  = new THREE.Vector3()
+		this.offset      = new THREE.Vector3()
+		if (offset) {
+			this.offset.copy(offset)
+		}
+		else {
+			this.randomizeOffset()
+		}
+		this.setFractal(1, 0.5, 2)
 	}
-	return (sampleVector) => {
+	randomizeOffset() {
+		fbm_counter += 123.45
+		this.offset.x = noise.simplex3( fbm_counter, 0, 0 ) * 1000
+		this.offset.y = noise.simplex3( 0, fbm_counter, 0 ) * 1000
+		this.offset.z = noise.simplex3( 0, 0, fbm_counter ) * 1000
+		return this
+	}
+	setFractal(octaves, persistance, lacunarity) {
+		this.octaves = octaves
+		this.persistance = persistance
+		this.lacunarity = lacunarity
+		return this
+	}
+	clone() {
+		var obj = new Noise3d(this.scale, this.offset)
+		obj.setFractal(this.octaves, this.persistance, this.lacunarity)
+		return obj
+	}
+	sample3(sampleVector) {
 		var amplitude = 1
 		var frequency = 1
 		var sum = 0
-		var work = workVector
-		work.copy(sampleVector).add(offset).divideScalar(scale)
-		for (var i = 0; i < octaves; i += 1) {
+		var work = this.workVector
+		work.copy(sampleVector).add(this.offset).divideScalar(this.scale)
+		for (var i = 0; i < this.octaves; i += 1) {
 			work.multiplyScalar(frequency)
 			sum += amplitude * noise.simplex3( work.x, work.y, work.z )
-			amplitude *= persistance
-			frequency *= lacunarity
+			amplitude *= this.persistance
+			frequency *= this.lacunarity
+		}
+		return sum
+	}
+	sample2(sampleVector) {
+		var amplitude = 1
+		var frequency = 1
+		var sum = 0
+		var work = this.workVector
+		work.copy(sampleVector).add(this.offset).divideScalar(this.scale)
+		for (var i = 0; i < this.octaves; i += 1) {
+			work.multiplyScalar(frequency)
+			sum += amplitude * noise.simplex2( work.x, work.z )
+			amplitude *= this.persistance
+			frequency *= this.lacunarity
 		}
 		return sum
 	}
 }
 
-var fbm1 = createFBM(500, 4, 0.5, 1.87)
-var fbm2 = createFBM(1, 4, 0.5, 1.87)
-var fbm3 = createFBM(1, 4, 0.5, 1.87)
+class NoiseWarp3d {
+	constructor(scale, noiseSource) {
+		this.scale = scale
+		this.noise_x = noiseSource.clone().randomizeOffset()
+		this.noise_y = noiseSource.clone().randomizeOffset()
+		this.noise_z = noiseSource.clone().randomizeOffset()
+		this.workVector = new THREE.Vector3()
+	}
+	warp3(pos) {
+		this.workVector.x = pos.x + this.scale * this.noise_x.sample3(pos)
+		this.workVector.y = pos.y + this.scale * this.noise_y.sample3(pos)
+		this.workVector.z = pos.z + this.scale * this.noise_z.sample3(pos)
+		pos.copy(this.workVector)
+		return pos
+	}
+	warp2(pos) {
+		this.workVector.x = pos.x + this.scale * this.noise_x.sample2(pos)
+		this.workVector.y = pos.y + this.scale * this.noise_y.sample2(pos)
+		this.workVector.z = pos.z + this.scale * this.noise_z.sample2(pos)
+		pos.copy(this.workVector)
+		return pos
+	}
+}
+
+var fbm1 = new Noise3d(250).setFractal(2, 0.5, 1.1)
+var fbm2 = new Noise3d(80)
+var fbm3 = new Noise3d(250)
+var warp1 = new NoiseWarp3d(1, fbm1)
 
 
-function terrainGen(sample) {
+function terrainGen(pos) {
 	
-	//if (fbm1(sample) > sample.y / 50) {
-	//	return BlockTypesByName.stone.id
-	//}
-	//return BlockTypesByName.air.id
-	
-	var x = sample.x
-	var y = sample.y
-	var z = sample.z
-	
-	var dd = 100
-	var m = noise.simplex3((x + 245 ) / dd, (y + 78345) / dd, (z - 23457 ) / dd)
-	var n = noise.simplex3((x + 4674) / dd, (y - 453  ) / dd, (z - 861   ) / dd)
-	var o = noise.simplex3((x + 452 ) / dd, (y - 23523) / dd, (z - 973456) / dd)
-	
-	x += m * 100
-	y += n * 100
-	z += o * 100
-	
-	if (noise.simplex3((x + 874356) / 20, (y + 63456) / 40, (z + 475672) / 20) > ((y + 0) / 10)) {
+	pos = warp1.warp3(pos)
+
+	var sample1 = fbm1.sample2(pos)
+	sample1 += fbm2.sample3(pos) * 0.5
+
+	sample1 = Math.pow(sample1, 2)
+
+	//var sample2 = fbm2.sample(pos)
+	//var sample3 = fbm3.sample(pos)
+
+	//var lerped = sample1 * (sample3) + sample2 * (1 - sample3)
+
+	if (sample1 > pos.y / 25) {
 		return BlockTypesByName.stone.id
 	}
-	
-	if (noise.simplex3(x / 80, y / 20, z / 80) > y / 5) {
-		return BlockTypesByName.dirt.id
-	}
-	
+
 	return BlockTypesByName.air.id
 }
 
