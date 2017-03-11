@@ -71,18 +71,20 @@ var ChunkGenWorkerManager = {
 	cancelTask(taskId) {
 		// if the task is still in the queue, simply remove it (we never called onStart, so we don't need to call onComplete)
 		var taskFromQueue = _.remove(this.queuedTasks, task => task.taskId === taskId)
+		if (taskFromQueue.length) {
+			return true
+		}
 
 		// otherwise, we need to stop an active worker...
-		if (!taskFromQueue.length) {
-			var taskFromActive = _.find(this.activeWorkerTasks, activeWorkerTask => activeWorkerTask.task.taskId === taskId)
-			if (taskFromActive) {
-				console.log(`cancelling a task`)
-				taskFromActive.worker.cancel() // fire off the cancel message and continue waiting for a reply...
-			}
-			else {
-				debugger
-			}
+		var taskFromActive = _.find(this.activeWorkerTasks, activeWorkerTask => activeWorkerTask.task.taskId === taskId)
+		if (taskFromActive) {
+			console.log(`cancelling a task`)
+			taskFromActive.worker.cancel() // fire off the cancel message and continue waiting for a reply...
 		}
+		else {
+			debugger
+		}
+		return false
 	},
 }
 ChunkGenWorkerManager.init()

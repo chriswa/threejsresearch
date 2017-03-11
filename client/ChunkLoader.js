@@ -64,7 +64,7 @@ var ChunkLoader = {
 		var chunkId = World.getChunkId(chunkPos)
 		var chunk
 
-		var debugChunkOutline = new ChunkOutline(Game.scene, 0x0000ff)
+		var debugChunkOutline = new ChunkOutline(Game.scene, 0x000088)
 		debugChunkOutline.object.position.copy(chunkPos).multiplyScalar(CHUNK_SIZE)
 		this.queuedDebugChunkOutlines[chunkId] = debugChunkOutline
 
@@ -142,19 +142,25 @@ var ChunkLoader = {
 	cancelChunkLoad(chunkId) {
 		var taskId = this.loadingChunks[chunkId]
 		if (taskId) {
-			ChunkGenWorkerManager.cancelTask(taskId)
+			var wasImmediatelyCancelled = ChunkGenWorkerManager.cancelTask(taskId)
 
 			// remove our semaphore
 			delete(this.loadingChunks[chunkId])
 
 			var debugChunkOutline = this.queuedDebugChunkOutlines[chunkId]
-			debugChunkOutline.material.color.setHex(0xff0000)
+			if (wasImmediatelyCancelled) {
+				debugChunkOutline.material.color.setHex(0xff0000)
+
+			}
+			else {
+				debugChunkOutline.material.color.setHex(0xff00ff)
+			}
 			setTimeout(() => {
 				// the success response may have come back since this timeout was setup, so debugChunkOutline may already have been disposed of
 				if (debugChunkOutline.object.parent) {
 					debugChunkOutline.dispose()
 				}
-			}, 100)
+			}, 50)
 		}
 		else {
 			debugger
