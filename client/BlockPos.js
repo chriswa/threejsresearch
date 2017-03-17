@@ -11,7 +11,7 @@ class BlockPos {
 		return new BlockPos(this.chunk, this.x, this.y)
 	}
 	recalculateIndex() {
-		this.i = this.z + this.y * CHUNK_SIZE + this.x * CHUNK_SIZE * CHUNK_SIZE
+		this.i = this.y + this.z * CHUNK_SIZE + this.x * CHUNK_SIZE * CHUNK_SIZE
 	}
 	getWorldPoint() {
 		return new THREE.Vector3( this.chunk.chunkPos.x * CHUNK_SIZE + this.x, this.chunk.chunkPos.y * CHUNK_SIZE + this.y, this.chunk.chunkPos.z * CHUNK_SIZE + this.z )

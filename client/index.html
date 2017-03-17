@@ -6,12 +6,10 @@
 		<style>
 			html, body { margin: 0; overflow: hidden; }
 			canvas { width: 100%; height: 100%; display: block; }
-			#coords { position: absolute; top: 0; right: 0; color: white; background-color: black; text-align: right; padding: 2px; }
 			#crosshair { width: 10px; height: 20px; position: absolute; top: 50%; left: 50%; margin: -10px 0 0 -5px; color: white; text-align: center; }
 		</style>
 	</head>
 	<body>
-		<div id="coords"></div>
 		<div id="crosshair">+</div>
 		<script src="lib/lodash.js"></script>
 		<script src="lib/util.js"></script>
@@ -22,6 +20,7 @@
 		<script src="lib/three.js"></script>
 		<script src="voxel-aabb-sweep.js"></script>
 		<script src="constants.js"></script>
+		<script src="noise.js"></script>
 		<script src="Pool.js"></script>
 		<script src="NetworkAuthority.js"></script>
 		<script src="LocalAuthority.js"></script>
@@ -34,6 +33,9 @@
 		<script src="Sides.js"></script>
 		<script src="BlockTypes.js"></script>
 		<script src="World.js"></script>
+		<script src="ChunkGenWorkerManager.js"></script>
+		<script src="ChunkLoader.js"></script>
+		<script src="Config.js"></script>
 		<script>
 
 			var Game = {}
@@ -66,26 +68,26 @@
 			renderer.setClearColor( new THREE.Color( skyColour ) ) // sky blue
 			document.body.appendChild( renderer.domElement )
 
-			var scene  = new THREE.Scene()
-			var camera = new THREE.PerspectiveCamera( 75, window.innerWidth / window.innerHeight, 0.1, 2000000  )
-			camera.position.z = CHUNK_SIZE / 2
-			camera.position.y = 6
-			camera.position.x = CHUNK_SIZE / 2
+			Game.scene  = new THREE.Scene()
+			Game.camera = new THREE.PerspectiveCamera( 75, window.innerWidth / window.innerHeight, 0.1, 2000000  )
+			Game.camera.position.z = CHUNK_SIZE / 2
+			Game.camera.position.y = 6
+			Game.camera.position.x = CHUNK_SIZE / 2
 
 			window.addEventListener( 'resize', () => {
-				camera.aspect = window.innerWidth / window.innerHeight
-				camera.updateProjectionMatrix()
+				Game.camera.aspect = window.innerWidth / window.innerHeight
+				Game.camera.updateProjectionMatrix()
 				renderer.setSize( window.innerWidth, window.innerHeight )
 			}, false )
 
 			//var cube1 = new THREE.Mesh( new THREE.BoxGeometry( 1.1, 1.1, 1.1 ), new THREE.MeshBasicMaterial( {color: 0x0099cc} ) )
-			//scene.add( cube1 )
+			//Game.scene.add( cube1 )
 			//var cube2 = new THREE.Mesh( new THREE.BoxGeometry( 0.2, 0.2, 0.2 ), new THREE.MeshBasicMaterial( {color: 0x99cc00} ) )
-			//scene.add( cube2 )
+			//Game.scene.add( cube2 )
 
 
 			var voxelRaycast
-			camera.addEventListener('click', event => {
+			Game.camera.addEventListener('click', event => {
 
 				if (!voxelRaycast) { return }
 
@@ -99,22 +101,9 @@
 			})
 
 			var chunkLoadingRange = parseFloat(queryStringObject.range) || 5.5
-			var ChunkLoading = {
-				followsCamera: true,
-				range: chunkLoadingRange,
-				centreChunkPos: new THREE.Vector3(0.5, 0.5, 0.5), // an invalid chunkPos, forcing the first update to load chunks
-				update(force) {
-					if (this.followsCamera && !force) {
-						var cameraChunkPos = camera.position.clone().divideScalar(CHUNK_SIZE).floor()
-						if (cameraChunkPos.equals(this.centreChunkPos)) { return } // centre hasn't changed, skip update
-						this.centreChunkPos.copy(cameraChunkPos)
-					}
-					World.loadAndUnloadChunksAroundChunkPos(this.centreChunkPos, this.range)
-				},
-			}
+			ChunkLoader.init(chunkLoadingRange)
 
-
-			//scene.fog = new THREE.Fog(skyColour, 0, (ChunkLoading.range - 2) * CHUNK_SIZE)
+			//Game.scene.fog = new THREE.Fog(skyColour, 0, (ChunkLoader.range - 2) * CHUNK_SIZE)
 
 			var loadingPromises = []
 
@@ -142,28 +131,11 @@
 				var clock = new THREE.Clock()
 				var totalElapsedTime = 0
 
-				PlayerControls.init(camera, renderer.domElement)
+				PlayerControls.init(Game.camera, renderer.domElement)
 				PlayerControls.fps.lon = 90
 				PlayerControls.fps.lat = -30
 				
-				var datConfig = {
-					'Movement Mode' : PlayerControls.mode,
-					'Move Speed'    : PlayerControls.MOVE_SPEED,
-					'Jump Impulse'  : PlayerControls.JUMP_IMPULSE,
-					'No Clip'       : PlayerControls.NO_CLIP,
-					'Gravity'       : PlayerControls.GRAVITY,
-					'Reset'         : () => { camera.position.set(0, 16, 0) ; PlayerControls.fallVelocity = 0 },
-				}
-				var gui = new dat.GUI()
-				var f1 = gui.addFolder('Movement')
-				f1.open()
-				f1.add(datConfig, 'Movement Mode', { Walking: PlayerControls.WALKING, Flying: PlayerControls.FLYING })
-				                                  .onChange(v => PlayerControls.mode = parseInt(v))
-				f1.add(datConfig, 'Move Speed')   .onChange(v => PlayerControls.MOVE_SPEED = v)
-				f1.add(datConfig, 'Jump Impulse') .onChange(v => PlayerControls.JUMP_IMPULSE = v)
-				f1.add(datConfig, 'No Clip')      .onChange(v => PlayerControls.NO_CLIP = v)
-				f1.add(datConfig, 'Gravity')      .onChange(v => PlayerControls.GRAVITY = v)
-				f1.add(datConfig, 'Reset')
+				Config.init()
 
 
 				var blockOutlineVerts = []
@@ -181,7 +153,7 @@
 				blockOutlineGeometry.addAttribute( 'position', new THREE.BufferAttribute( new Float32Array(blockOutlineVerts), 3 ) )
 				var blockOutlineMaterial = new THREE.LineBasicMaterial( { color: 0xffffff, linewidth: 1, transparent: true } )
 				blockOutline = new THREE.Line( blockOutlineGeometry, blockOutlineMaterial )
-				scene.add( blockOutline )
+				Game.scene.add( blockOutline )
 				
 				var render = function () {
 					stats.elapsed.begin()
@@ -192,16 +164,16 @@
 
 					// DEBUG: ever onward! for fps research!
 					if (!PlayerControls.pointerLocked && queryStringObject['tour'] && totalElapsedTime > 5) { // wait 5 seconds for everything to load on a phone, for example
-						camera.position.z += dt * 20
-						camera.position.x += dt * 20
+						Game.camera.position.z += dt * 20
+						Game.camera.position.x += dt * 20
 					}
 
-					ChunkLoading.update()
+					ChunkLoader.update()
 
-					document.getElementById("coords").innerHTML = `x = ${Math.round(camera.position.x)}, y = ${Math.round(camera.position.y)}, z = ${Math.round(camera.position.z)}`
+					Config.update()
 
 					var max_d = 6
-					voxelRaycast = World.raycast(this.camera.position, new THREE.Vector3(0, 0, -1).transformDirection( camera.matrixWorld ), max_d)
+					voxelRaycast = World.raycast(Game.camera.position, new THREE.Vector3(0, 0, -1).transformDirection( Game.camera.matrixWorld ), max_d)
 					if (voxelRaycast) {
 						blockOutline.position.copy(voxelRaycast.blockPos.getWorldPoint())
 						blockOutline.geometry.setDrawRange(5 * voxelRaycast.side.id, 5) // vector3 * 5 vertices for a closed path
@@ -214,7 +186,7 @@
 
 					World.updateChunks()
 
-					renderer.render(scene, camera)
+					renderer.render(Game.scene, Game.camera)
 
 					requestAnimationFrame( render )
 					stats.elapsed.end()

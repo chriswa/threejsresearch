@@ -1,7 +1,7 @@
-var T = { name: "TOP",    id: 0, verts: [ 0,1,1, 1,1,1, 1,1,0, 0,1,0, ], dx: 0, dy: 1, dz: 0, size: CHUNK_SIZE, deltaIndex: CHUNK_SIZE,                }
-var B = { name: "BOTTOM", id: 1, verts: [ 0,0,0, 1,0,0, 1,0,1, 0,0,1, ], dx: 0, dy:-1, dz: 0, size: CHUNK_SIZE, deltaIndex: -CHUNK_SIZE,               }
-var N = { name: "NORTH",  id: 2, verts: [ 1,0,1, 1,1,1, 0,1,1, 0,0,1, ], dx: 0, dy: 0, dz: 1, size: CHUNK_SIZE, deltaIndex: 1,                          }
-var S = { name: "SOUTH",  id: 3, verts: [ 0,0,0, 0,1,0, 1,1,0, 1,0,0, ], dx: 0, dy: 0, dz:-1, size: CHUNK_SIZE, deltaIndex: -1,                         }
+var T = { name: "TOP",    id: 0, verts: [ 0,1,1, 1,1,1, 1,1,0, 0,1,0, ], dx: 0, dy: 1, dz: 0, size: CHUNK_SIZE, deltaIndex: -1,                       }
+var B = { name: "BOTTOM", id: 1, verts: [ 0,0,0, 1,0,0, 1,0,1, 0,0,1, ], dx: 0, dy:-1, dz: 0, size: CHUNK_SIZE, deltaIndex: 1,                        }
+var N = { name: "NORTH",  id: 2, verts: [ 1,0,1, 1,1,1, 0,1,1, 0,0,1, ], dx: 0, dy: 0, dz: 1, size: CHUNK_SIZE, deltaIndex: CHUNK_SIZE,               }
+var S = { name: "SOUTH",  id: 3, verts: [ 0,0,0, 0,1,0, 1,1,0, 1,0,0, ], dx: 0, dy: 0, dz:-1, size: CHUNK_SIZE, deltaIndex: -CHUNK_SIZE,              }
 var E = { name: "EAST",   id: 4, verts: [ 1,0,0, 1,1,0, 1,1,1, 1,0,1, ], dx: 1, dy: 0, dz: 0, size: CHUNK_SIZE, deltaIndex: CHUNK_SIZE * CHUNK_SIZE,  }
 var W = { name: "WEST",   id: 5, verts: [ 0,0,1, 0,1,1, 0,1,0, 0,0,0, ], dx:-1, dy: 0, dz: 0, size: CHUNK_SIZE, deltaIndex: -CHUNK_SIZE * CHUNK_SIZE, }
 

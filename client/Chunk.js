@@ -1,14 +1,17 @@
 class ChunkOutline {
-	constructor(parentObject3d) {
+	constructor(parentObject3d, colour) {
 		var chunkOutlineVerts = [ 0,0,0,  0,0,1,  0,1,1,  1,1,1,  1,1,0,  0,1,0,  0,0,0,  1,0,0,  1,0,1,  0,0,1,  0,1,1,  0,1,0,  1,1,0,  1,0,0,  1,0,1,  1,1,1 ]
 		for (var i = 0; i < chunkOutlineVerts.length; i += 1) {
 			chunkOutlineVerts[i] *= CHUNK_SIZE
 		}
 		var chunkOutlineGeometry = new THREE.BufferGeometry()
 		chunkOutlineGeometry.addAttribute( 'position', new THREE.BufferAttribute( new Float32Array(chunkOutlineVerts), 3 ) )
-		var chunkOutlineMaterial = new THREE.LineBasicMaterial( { color: 0x00ffff, linewidth: 1, transparent: true } )
-		this.object = new THREE.Line( chunkOutlineGeometry, chunkOutlineMaterial )
+		this.material = new THREE.LineBasicMaterial( { color: colour, linewidth: 1, transparent: true } )
+		this.object = new THREE.Line( chunkOutlineGeometry, this.material )
 		parentObject3d.add(this.object)
+	}
+	dispose() {
+		this.object.parent.remove(this.object)
 	}
 }
 
@@ -30,7 +33,7 @@ class Chunk {
 
 		this.chunkMeshManager = undefined
 
-		//this.chunkOutline = new ChunkOutline(this.object3d)
+		//this.chunkOutline = new ChunkOutline(this.object3d, 0xffffff)
 	}
 	start(chunkPos, blockDataBuffer, quadIdsByBlockAndSideBuffer, quadCount, prefilledVertexBuffers) {
 		this.chunkPos = chunkPos
@@ -45,10 +48,12 @@ class Chunk {
 
 		//this.stitchQuadsForNeighbouringChunks()
 
-		scene.add(this.object3d)
+		Game.scene.add(this.object3d)
+
+		World.addChunk(this)
 	}
 	stop() {
-		scene.remove(this.object3d)
+		Game.scene.remove(this.object3d)
 		this.chunkMeshManager.dispose()
 		this.chunkMeshManager = undefined
 		// break references between neighbouring chunks
