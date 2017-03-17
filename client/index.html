@@ -57,6 +57,7 @@
 
 			var mainTexture
 			var loader = new THREE.TextureLoader()
+			loader.setCrossOrigin('anonymous')
 			
 			var renderer = new THREE.WebGLRenderer()
 			var gl = renderer.context
